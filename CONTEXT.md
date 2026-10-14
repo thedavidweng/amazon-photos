@@ -22,4 +22,5 @@
 ## Architectural Sources of Truth
 
 - Architecture & retry/routing decisions: `docs/adr/0001-sdk-architecture.md`
+- CLI contract, credential store & JSON envelope: `docs/adr/0002-cli-and-json-contract.md`
 - Agent & repository rules: `AGENTS.md`
