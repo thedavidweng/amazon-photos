@@ -48,7 +48,7 @@ func (c *Client) CreateFolder(ctx context.Context, name, parentID string) (*Node
 	}
 
 	var created Node
-	if err := c.doMutateJSON(ctx, http.MethodPost, "/nodes", nil, payload, &created); err != nil {
+	if err := c.doMutateJSON(ctx, http.MethodPost, "/nodes", payload, &created); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(created.ID) == "" {
@@ -69,33 +69,19 @@ func (c *Client) CreateFolder(ctx context.Context, name, parentID string) (*Node
 	return &created, nil
 }
 
-func normalizeListBounds(limit, offset int) (normLimit, normOffset int, err error) {
-	if offset < 0 {
-		return 0, 0, &ConfigError{
-			Field:   "offset",
-			Message: "offset cannot be negative",
-		}
-	}
-	if limit <= 0 {
-		limit = 200
-	} else if limit > 200 {
-		limit = 200
-	}
-	if offset+limit > 9999 {
-		if offset >= 9999 {
-			return 0, 0, &InvalidFilterError{
-				StatusCode: http.StatusBadRequest,
-				Endpoint:   "/nodes",
-				Message:    "Offset + limit cannot be greater than 9999",
-			}
-		}
-		limit = 9999 - offset
-	}
-	return limit, offset, nil
+type AlbumListOptions struct {
+	Limit  int
+	Offset int
+}
+
+type FolderListOptions struct {
+	ParentID string
+	Limit    int
+	Offset   int
 }
 
 func (c *Client) ListFolders(ctx context.Context, parentID string, limit, offset int) ([]Node, int, error) {
-	normLimit, normOffset, err := normalizeListBounds(limit, offset)
+	normOffset, normLimit, err := normalizeBoundedOffsetAndLimit("/nodes", offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -118,7 +104,7 @@ func (c *Client) ListFolders(ctx context.Context, parentID string, limit, offset
 }
 
 func (c *Client) ListAlbums(ctx context.Context, limit, offset int) ([]Node, int, error) {
-	normLimit, normOffset, err := normalizeListBounds(limit, offset)
+	normOffset, normLimit, err := normalizeBoundedOffsetAndLimit("/nodes", offset, limit)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -172,7 +158,7 @@ func (c *Client) CreateAlbum(ctx context.Context, name string, initialNodeIDs ..
 	}
 
 	var created Node
-	if err := c.doMutateJSON(ctx, http.MethodPost, "/nodes", nil, payload, &created); err != nil {
+	if err := c.doMutateJSON(ctx, http.MethodPost, "/nodes", payload, &created); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(created.ID) == "" {
@@ -224,7 +210,7 @@ func (c *Client) patchAlbumMembers(ctx context.Context, albumID, op string, node
 		ResourceVersion: "V2",
 		ContentType:     "JSON",
 	}
-	return c.doMutateJSON(ctx, http.MethodPatch, path, nil, payload, nil)
+	return c.doMutateJSON(ctx, http.MethodPatch, path, payload, nil)
 }
 
 func (c *Client) RenameNode(ctx context.Context, nodeID, newName string) (*Node, error) {
@@ -251,7 +237,7 @@ func (c *Client) RenameNode(ctx context.Context, nodeID, newName string) (*Node,
 	}
 
 	var updated Node
-	if err := c.doMutateJSON(ctx, http.MethodPatch, path, nil, payload, &updated); err != nil {
+	if err := c.doMutateJSON(ctx, http.MethodPatch, path, payload, &updated); err != nil {
 		return nil, err
 	}
 	if updated.ID == "" {

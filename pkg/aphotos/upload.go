@@ -279,6 +279,9 @@ func (c *Client) uploadOnce(
 	}
 
 	resp, err := c.httpClient.Do(httpReq)
+	if err == nil && resp != nil && resp.StatusCode >= 400 && (stream.readBytes < size || (size == 0 && stream.readBytes == 0)) {
+		_, _ = io.Copy(io.Discard, stream)
+	}
 	computedMD5 := hex.EncodeToString(stream.hasher.Sum(nil))
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -366,22 +369,11 @@ func (c *Client) handleConflictSkip(
 	conflictErr *ConflictError,
 	name, parentID string,
 ) (*TransferResult, error) {
-	verifiedNode, verifyErr := c.findConflictingRemoteNode(ctx, name, parentID, failedRes.MD5, conflictErr.ConflictingNodeID)
+	verifiedNode, verifyErr := c.findConflictingRemoteNode(ctx, name, parentID, failedRes.MD5, conflictErr)
 	if verifyErr != nil {
 		return failedRes, verifyErr
 	}
 	if verifiedNode == nil {
-		if conflictErr.ConflictingNodeID != "" {
-			return &TransferResult{
-				Status:           TransferSkipped,
-				NodeID:           conflictErr.ConflictingNodeID,
-				Name:             name,
-				LocalPath:        failedRes.LocalPath,
-				Bytes:            failedRes.Bytes,
-				MD5:              failedRes.MD5,
-				ConflictResolved: true,
-			}, nil
-		}
 		return failedRes, conflictErr
 	}
 	return &TransferResult{
@@ -398,43 +390,73 @@ func (c *Client) handleConflictSkip(
 
 func (c *Client) findConflictingRemoteNode(
 	ctx context.Context,
-	name, parentID, md5Hex, hintNodeID string,
+	name, parentID, md5Hex string,
+	conflictErr *ConflictError,
 ) (*Node, error) {
 	params := baseQueryParams()
 	params.Set("limit", "200")
 	params.Set("offset", "0")
 
-	clauses := []string{"kind:FILE", "name:" + escapeFilterTerm(name)}
+	fb := NewFilter().Kind(NodeKindFile).NameExact(name)
 	if parentID != "" {
-		clauses = append(clauses, "parents:"+escapeFilterTerm(parentID))
+		fb.ParentID(parentID)
 	}
-	params.Set("filters", strings.Join(clauses, " AND "))
+	filterExpr, err := fb.Build()
+	if err != nil {
+		return nil, err
+	}
+	params.Set("filters", filterExpr)
 
 	var resp nodesListResponse
 	if err := c.doReadJSON(ctx, "/nodes", params, &resp); err != nil {
 		return nil, err
 	}
 
+	hintNodeID := ""
+	if conflictErr != nil {
+		hintNodeID = strings.TrimSpace(conflictErr.ConflictingNodeID)
+	}
+
+	var nameMatchNoMD5 *Node
+	var mismatchedNode *Node
 	for i := range resp.Data {
 		n := resp.Data[i]
 		if strings.TrimSpace(n.ID) == "" {
 			continue
 		}
+		remoteMD5 := ""
+		if n.ContentProperties != nil {
+			remoteMD5 = strings.TrimSpace(n.ContentProperties.MD5)
+		}
+		if md5Hex != "" && remoteMD5 != "" {
+			if strings.EqualFold(remoteMD5, md5Hex) {
+				return &n, nil
+			}
+			if mismatchedNode == nil || (hintNodeID != "" && n.ID == hintNodeID) {
+				cp := n
+				mismatchedNode = &cp
+			}
+			continue
+		}
 		if hintNodeID != "" && n.ID == hintNodeID {
 			return &n, nil
 		}
-		if md5Hex != "" && n.ContentProperties != nil && n.ContentProperties.MD5 != "" {
-			if strings.EqualFold(n.ContentProperties.MD5, md5Hex) {
-				return &n, nil
-			}
-		}
-		if n.Name == name {
-			return &n, nil
+		if n.Name == name && nameMatchNoMD5 == nil {
+			cp := n
+			nameMatchNoMD5 = &cp
 		}
 	}
-	if len(resp.Data) > 0 && strings.TrimSpace(resp.Data[0].ID) != "" {
-		n := resp.Data[0]
-		return &n, nil
+
+	if nameMatchNoMD5 != nil {
+		return nameMatchNoMD5, nil
+	}
+	if mismatchedNode != nil {
+		return nil, &ConflictError{
+			StatusCode:        http.StatusConflict,
+			Endpoint:          "/cdproxy/nodes",
+			ConflictingNodeID: mismatchedNode.ID,
+			Message:           fmt.Sprintf("remote node %q (%s) exists with different MD5 (%s != %s)", name, mismatchedNode.ID, mismatchedNode.ContentProperties.MD5, md5Hex),
+		}
 	}
 	return nil, nil
 }
@@ -518,19 +540,6 @@ func openLocalUploadFile(localPath string) (*os.File, os.FileInfo, error) {
 		}
 	}
 	return f, info, nil
-}
-
-func escapeFilterTerm(val string) string {
-	s := strings.TrimSpace(val)
-	if s == "" {
-		return `""`
-	}
-	escaped := strings.ReplaceAll(s, `\`, `\\`)
-	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
-	if strings.ContainsAny(s, " \t\r\n():\"'") {
-		return `"` + escaped + `"`
-	}
-	return escaped
 }
 
 func bytesTrimSpace(b []byte) []byte {

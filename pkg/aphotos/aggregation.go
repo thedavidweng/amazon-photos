@@ -48,6 +48,8 @@ type AggregationEntry struct {
 	Raw        json.RawMessage        `json:"-"`
 }
 
+type Aggregation = AggregationEntry
+
 func (ae *AggregationEntry) UnmarshalJSON(data []byte) error {
 	var raw struct {
 		Value      string                 `json:"value"`

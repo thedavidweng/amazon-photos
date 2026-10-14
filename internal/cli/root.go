@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,6 +28,7 @@ const appContextKey contextKey = "appContext"
 type RootOptions struct {
 	Transport  http.RoundTripper
 	HTTPClient *http.Client
+	PromptIn   io.Reader
 }
 
 type AppContext struct {
@@ -41,6 +43,7 @@ type AppContext struct {
 	RequestID  string
 	Transport  http.RoundTripper
 	HTTPClient *http.Client
+	PromptIn   io.Reader
 }
 
 func WithAppContext(ctx context.Context, app *AppContext) context.Context {
@@ -79,6 +82,7 @@ func NewRootCommand(opts RootOptions) *cobra.Command {
 				RequestID:  generateRequestID(),
 				Transport:  opts.Transport,
 				HTTPClient: opts.HTTPClient,
+				PromptIn:   opts.PromptIn,
 			}
 			app.ConfigFile, _ = cmd.Flags().GetString("config")
 			app.Profile, _ = cmd.Flags().GetString("profile")

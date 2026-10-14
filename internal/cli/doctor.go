@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -114,7 +112,7 @@ func runDoctorChecks(ctx context.Context, app *AppContext, writeProbe, allowUnco
 	var checks []DoctorCheck
 	cfgPath := config.ResolveConfigPath(app.ConfigFile)
 
-	info, statErr := os.Stat(cfgPath)
+	_, statErr := os.Stat(cfgPath)
 	if statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
 			checks = append(checks, DoctorCheck{
@@ -135,22 +133,7 @@ func runDoctorChecks(ctx context.Context, app *AppContext, writeProbe, allowUnco
 			return DoctorReport{Healthy: false, Checks: checks}, &aphotos.ConfigError{Field: "config_file", Message: statErr.Error(), Cause: statErr}
 		}
 	} else {
-		permOK := true
-		msg := fmt.Sprintf("config file %s readable", cfgPath)
-		var hint string
-		if runtime.GOOS != "windows" {
-			filePerm := info.Mode().Perm()
-			dirInfo, dErr := os.Stat(filepath.Dir(cfgPath))
-			if filePerm&0o077 != 0 {
-				permOK = false
-				msg = fmt.Sprintf("config file %s has overly permissive mode %04o", cfgPath, filePerm)
-				hint = fmt.Sprintf("run: chmod 0600 %s", cfgPath)
-			} else if dErr == nil && dirInfo.Mode().Perm()&0o077 != 0 {
-				permOK = false
-				msg = fmt.Sprintf("config directory %s has overly permissive mode %04o", filepath.Dir(cfgPath), dirInfo.Mode().Perm())
-				hint = fmt.Sprintf("run: chmod 0700 %s", filepath.Dir(cfgPath))
-			}
-		}
+		permOK, msg, hint := config.CheckConfigPermissions(cfgPath)
 		status := "pass"
 		if !permOK {
 			status = "warn"

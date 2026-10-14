@@ -86,7 +86,7 @@ func main() {
 	fmt.Printf("Photos: %d items (%d bytes)\n", usage.Photo.Total.Count, usage.Photo.Total.Bytes)
 
 	page, err := client.Search(ctx, aphotos.SearchOptions{
-		Filter: aphotos.NewFilter().MediaType(aphotos.MediaTypePhotos).Year(2025),
+		Filter: aphotos.NewFilter().MediaType(aphotos.MediaPhotos).Year(2025),
 		Limit:  50,
 		Sort:   aphotos.SortContentDateDesc,
 	})

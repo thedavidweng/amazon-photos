@@ -37,6 +37,10 @@ type Node struct {
 	Raw               json.RawMessage     `json:"-"`
 }
 
+type Album = Node
+
+type Folder = Node
+
 type NodeSettings struct {
 	Favorite bool `json:"favorite"`
 	Hidden   bool `json:"hidden"`

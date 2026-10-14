@@ -207,7 +207,7 @@ func normalizeAndValidateCookies(raw map[string]string) (map[string]string, erro
 		if val == "" {
 			continue
 		}
-		ck := canonicalCookieKey(k)
+		ck := CanonicalCookieKey(k)
 		if existing, exists := norm[ck]; exists && existing != val {
 			return nil, &ConfigError{
 				Field:   "cookies",
@@ -368,19 +368,12 @@ func (c *Client) doReadJSON(ctx context.Context, path string, query url.Values, 
 	return lastErr
 }
 
-func (c *Client) DoMutateJSON(ctx context.Context, method, path string, query url.Values, payload, out any) error {
-	return c.doMutateJSON(ctx, method, path, query, payload, out)
-}
-
-func (c *Client) doMutateJSON(ctx context.Context, method, path string, query url.Values, payload, out any) error {
+func (c *Client) doMutateJSON(ctx context.Context, method, path string, payload, out any) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	normPath := ensureLeadingSlash(path)
 	fullURL := c.regionCfg.DriveURL + normPath
-	if len(query) > 0 {
-		fullURL += "?" + query.Encode()
-	}
 
 	var bodyReader io.Reader = http.NoBody
 	var contentLen int64

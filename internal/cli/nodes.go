@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -274,8 +277,8 @@ func newTrashCmd() *cobra.Command {
 		Short: "Move node(s) to trash (requires --confirm)",
 		Args:  requireMinArgs("trash add", 1, "at least one <node-id> is required"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !confirmAdd {
-				app := GetAppContext(cmd.Context())
+			app := GetAppContext(cmd.Context())
+			if !confirmAdd && !promptConfirmTrashAdd(cmd, app, len(args)) {
 				r := newRenderer(app, cmd)
 				return r.FailError(metaInput(app, "trash add"), model.NewCommandError(model.ErrConfirmationRequired, "moving nodes to trash requires --confirm"))
 			}
@@ -315,6 +318,27 @@ func newTrashCmd() *cobra.Command {
 
 	trashCmd.AddCommand(listCmd, addCmd, restoreCmd)
 	return trashCmd
+}
+
+func promptConfirmTrashAdd(cmd *cobra.Command, app *AppContext, count int) bool {
+	if app == nil || app.JSON {
+		return false
+	}
+	in := app.PromptIn
+	if in == nil {
+		fi, err := os.Stdin.Stat()
+		if err != nil || fi.Mode()&os.ModeCharDevice == 0 {
+			return false
+		}
+		in = os.Stdin
+	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Move %d node(s) to trash? [y/N]: ", count)
+	scanner := bufio.NewScanner(in)
+	if !scanner.Scan() {
+		return false
+	}
+	ans := strings.ToLower(strings.TrimSpace(scanner.Text()))
+	return ans == "y" || ans == "yes"
 }
 
 func newFavoriteCmd() *cobra.Command {

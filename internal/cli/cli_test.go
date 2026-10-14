@@ -472,6 +472,48 @@ func TestAlbumsFoldersTrashFavoriteHideE2E(t *testing.T) {
 		if err != nil || code != 0 {
 			t.Fatalf("trash restore failed: code=%d err=%v (%s)", code, err, stdout)
 		}
+
+		var interactiveTrashed bool
+		interactiveRT := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.Method == http.MethodPatch && req.URL.Path == "/drive/v1/trash" {
+				interactiveTrashed = true
+				return jsonHTTPResponse(200, `{}`), nil
+			}
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.Path)
+			return nil, nil
+		})
+
+		yesCmd := NewRootCommand(RootOptions{
+			Transport: interactiveRT,
+			PromptIn:  strings.NewReader("y\n"),
+		})
+		var yesOut, yesErr bytes.Buffer
+		yesCmd.SetOut(&yesOut)
+		yesCmd.SetErr(&yesErr)
+		yesCmd.SetArgs([]string{"--config", cfgPath, "trash", "add", "node-1"})
+		if err := yesCmd.Execute(); err != nil {
+			t.Fatalf("interactive trash add 'y' failed: %v (stderr=%s)", err, yesErr.String())
+		}
+		if !interactiveTrashed {
+			t.Fatalf("expected interactive trash add 'y' to call PATCH /trash")
+		}
+		if !strings.Contains(yesErr.String(), "Move 1 node(s) to trash? [y/N]: ") {
+			t.Errorf("expected prompt on stderr, got %q", yesErr.String())
+		}
+
+		noCmd := NewRootCommand(RootOptions{
+			Transport: interactiveRT,
+			PromptIn:  strings.NewReader("n\n"),
+		})
+		var noOut, noErr bytes.Buffer
+		noCmd.SetOut(&noOut)
+		noCmd.SetErr(&noErr)
+		noCmd.SetArgs([]string{"--config", cfgPath, "trash", "add", "node-1"})
+		noExecErr := noCmd.Execute()
+		var cmdErr *model.CommandError
+		if !errors.As(noExecErr, &cmdErr) || cmdErr.ExitCode() != 6 {
+			t.Fatalf("expected exit code 6 when interactive prompt declined, got %v", noExecErr)
+		}
 	})
 
 	t.Run("favorite and hide with --undo", func(t *testing.T) {
@@ -638,7 +680,7 @@ func TestUploadConflictPoliciesSkipAndRenameE2E(t *testing.T) {
 				if strings.Contains(f, "isRoot:true") {
 					return jsonHTTPResponse(200, `{"count":1,"data":[{"id":"root-1","ownerId":"own-1","kind":"FOLDER","isRoot":true}]}`), nil
 				}
-				return jsonHTTPResponse(200, `{"count":1,"data":[{"id":"existing-node-1","name":"dup.jpg","kind":"FILE","status":"AVAILABLE","contentProperties":{"size":10,"md5":"9c3c31d4cf9b117761f89598d702418a"}}]}`), nil
+				return jsonHTTPResponse(200, `{"count":1,"data":[{"id":"existing-node-1","name":"dup.jpg","kind":"FILE","status":"AVAILABLE","contentProperties":{"size":10,"md5":"e1d44c23b69953b35433ff067798318a"}}]}`), nil
 			case req.Method == http.MethodPost && req.URL.Path == "/cdproxy/nodes":
 				return jsonHTTPResponse(409, `{"message":"Node already exists"}`), nil
 			default:

@@ -25,7 +25,6 @@ type EvidenceStatus string
 const (
 	EvidenceVerified     EvidenceStatus = "verified"
 	EvidenceExperimental EvidenceStatus = "experimental"
-	EvidenceUnsupported  EvidenceStatus = "unsupported"
 )
 
 type RegionConfig struct {
@@ -155,7 +154,7 @@ func InferRegionFromCookies(cookies map[string]string) (Region, error) {
 		if strings.TrimSpace(val) == "" {
 			continue
 		}
-		k := canonicalCookieKey(rawKey)
+		k := CanonicalCookieKey(rawKey)
 		switch {
 		case k == "ubid-main" || k == "at-main":
 			found[RegionUS] = struct{}{}
@@ -208,7 +207,7 @@ func InferRegionFromCookies(cookies map[string]string) (Region, error) {
 	return "", nil
 }
 
-func canonicalCookieKey(name string) string {
+func CanonicalCookieKey(name string) string {
 	k := strings.ToLower(strings.TrimSpace(name))
 	switch {
 	case k == "session_id" || k == "session-id":

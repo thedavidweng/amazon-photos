@@ -315,14 +315,7 @@ func (b *FilterBuilder) Build() (string, error) {
 	if len(b.clauses) == 0 {
 		return "", &InvalidFilterError{Message: "filter builder has no clauses"}
 	}
-	expr := strings.Join(b.clauses, " AND ")
-	if b.err != nil {
-		var inv *InvalidFilterError
-		if ok := asInvalidFilterError(b.err, &inv); ok && inv.Filter == "" {
-			inv.Filter = expr
-		}
-	}
-	return expr, nil
+	return strings.Join(b.clauses, " AND "), nil
 }
 
 func formatDisjunction(field string, values []string) (string, error) {
@@ -348,10 +341,8 @@ func escapeFilterValue(val string) (string, error) {
 		return "", fmt.Errorf("value contains control characters")
 	}
 	upper := strings.ToUpper(val)
-	if upper == "AND" || upper == "OR" || upper == "NOT" || upper == "TO" || isSafeToken(val) {
-		if upper != "AND" && upper != "OR" && upper != "NOT" && upper != "TO" {
-			return val, nil
-		}
+	if upper != "AND" && upper != "OR" && upper != "NOT" && upper != "TO" && isSafeToken(val) {
+		return val, nil
 	}
 	return strconv.Quote(val), nil
 }
@@ -386,12 +377,4 @@ func isHex(s string) bool {
 		}
 	}
 	return true
-}
-
-func asInvalidFilterError(err error, target **InvalidFilterError) bool {
-	if inv, ok := err.(*InvalidFilterError); ok {
-		*target = inv
-		return true
-	}
-	return false
 }

@@ -25,5 +25,5 @@ If you discover a security vulnerability in `amazon-photos` or `aphotos`, please
 - **Restricted Config Permissions**: `aphotos auth import` writes `config.yaml` atomically with `0600` permissions inside a `0700` directory.
 - **Secret Indirection & Stateless Env Vars**: Config profiles support `env:VAR_NAME` indirection, and headless environments can pass `APHOTOS_COOKIES_FILE`, `APHOTOS_SESSION_ID`, `APHOTOS_UBID`, and `APHOTOS_AT` without persisting secrets to disk.
 - **TLS Enforced**: Standard HTTPS certificate verification is always enabled by default; `InsecureSkipVerify` is never enabled by the SDK or CLI.
-- **Safe Downloads**: Downloaded filenames are sanitized with `SanitizeFilename` (stripping path separators, `..`, Windows reserved characters/device names, and control characters) and verified against expected byte size and MD5 before atomic rename.
+- **Safe Downloads**: Downloaded filenames are sanitized during `Download` (stripping path separators, `..`, Windows reserved characters/device names, and control characters) and verified against expected byte size and MD5 before atomic rename.
 - **No Telemetry**: Neither the SDK nor the CLI collects telemetry or contacts any server other than the configured regional Amazon Photos / Drive endpoints.
