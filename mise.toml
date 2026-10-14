@@ -1,0 +1,40 @@
+[tools]
+go = "1.26.5"
+gofumpt = "0.12.0"
+golangci-lint = "2.12.2"
+
+[tasks.build]
+run = "go build ./..."
+
+[tasks.test]
+run = "go test ./..."
+
+[tasks.fmt]
+run = "gofumpt -extra -w ."
+
+[tasks.lint]
+run = "golangci-lint run"
+
+[tasks.conventions]
+run = '''
+for f in CLAUDE.md .cursorrules .windsurfrules .clinerules GEMINI.md; do
+  if [ -e "$f" ]; then echo "forbidden per-tool agent file: $f (use AGENTS.md)"; exit 1; fi
+done
+dirs=""
+for d in pkg cmd internal; do
+  if [ -d "$d" ]; then dirs="$dirs $d"; fi
+done
+if [ -n "$dirs" ]; then
+  files=$(find $dirs -name '*.go' ! -name '*_test.go')
+  if [ -n "$files" ]; then
+    total=$(cat $files | grep -cv '^[[:space:]]*$')
+    comments=$(cat $files | grep -E '^[[:space:]]*//' | grep -cvE '^[[:space:]]*//(go:|nolint)' || true)
+    if [ "$comments" -gt $((total * 5 / 100)) ]; then
+      echo "comment budget exceeded: $comments comment lines > 5% of $total code lines"; exit 1
+    fi
+  fi
+fi
+'''
+
+[tasks.check]
+depends = ["fmt", "build", "test", "lint", "conventions"]
