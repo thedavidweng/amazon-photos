@@ -371,7 +371,19 @@ func (c *Client) handleConflictSkip(
 ) (*TransferResult, error) {
 	verifiedNode, verifyErr := c.findConflictingRemoteNode(ctx, name, parentID, failedRes.MD5, conflictErr)
 	if verifyErr != nil {
-		return failedRes, verifyErr
+		var unconfErr *PartialResultError
+		if errors.As(verifyErr, &unconfErr) {
+			return &TransferResult{
+				Status:       TransferUnconfirmed,
+				Name:         name,
+				LocalPath:    failedRes.LocalPath,
+				Bytes:        failedRes.Bytes,
+				MD5:          failedRes.MD5,
+				Error:        verifyErr,
+				ErrorMessage: Redact(verifyErr.Error()),
+			}, verifyErr
+		}
+		return failedTransferResult(name, failedRes.LocalPath, failedRes.Bytes, failedRes.MD5, verifyErr), verifyErr
 	}
 	if verifiedNode == nil {
 		return failedRes, conflictErr
@@ -393,6 +405,14 @@ func (c *Client) findConflictingRemoteNode(
 	name, parentID, md5Hex string,
 	conflictErr *ConflictError,
 ) (*Node, error) {
+	if strings.TrimSpace(md5Hex) == "" {
+		return nil, &PartialResultError{
+			Endpoint: "/cdproxy/nodes",
+			Message:  fmt.Sprintf("cannot verify remote conflict for %q without local MD5", name),
+			Cause:    conflictErr,
+		}
+	}
+
 	params := baseQueryParams()
 	params.Set("limit", "200")
 	params.Set("offset", "0")
@@ -421,14 +441,14 @@ func (c *Client) findConflictingRemoteNode(
 	var mismatchedNode *Node
 	for i := range resp.Data {
 		n := resp.Data[i]
-		if strings.TrimSpace(n.ID) == "" {
+		if strings.TrimSpace(n.ID) == "" || n.Status == NodeStatusTrash {
 			continue
 		}
 		remoteMD5 := ""
 		if n.ContentProperties != nil {
 			remoteMD5 = strings.TrimSpace(n.ContentProperties.MD5)
 		}
-		if md5Hex != "" && remoteMD5 != "" {
+		if remoteMD5 != "" {
 			if strings.EqualFold(remoteMD5, md5Hex) {
 				return &n, nil
 			}
@@ -438,24 +458,32 @@ func (c *Client) findConflictingRemoteNode(
 			}
 			continue
 		}
-		if hintNodeID != "" && n.ID == hintNodeID {
-			return &n, nil
-		}
-		if n.Name == name && nameMatchNoMD5 == nil {
+		if (n.Name == name || (hintNodeID != "" && n.ID == hintNodeID)) && nameMatchNoMD5 == nil {
 			cp := n
 			nameMatchNoMD5 = &cp
 		}
 	}
 
-	if nameMatchNoMD5 != nil {
-		return nameMatchNoMD5, nil
-	}
 	if mismatchedNode != nil {
 		return nil, &ConflictError{
 			StatusCode:        http.StatusConflict,
 			Endpoint:          "/cdproxy/nodes",
 			ConflictingNodeID: mismatchedNode.ID,
 			Message:           fmt.Sprintf("remote node %q (%s) exists with different MD5 (%s != %s)", name, mismatchedNode.ID, mismatchedNode.ContentProperties.MD5, md5Hex),
+		}
+	}
+	if nameMatchNoMD5 != nil {
+		return nil, &PartialResultError{
+			Endpoint: "/cdproxy/nodes",
+			Message:  fmt.Sprintf("remote node %q (%s) has no verifiable MD5; cannot confirm identical content", name, nameMatchNoMD5.ID),
+			Cause:    conflictErr,
+		}
+	}
+	if hintNodeID != "" {
+		return nil, &PartialResultError{
+			Endpoint: "/cdproxy/nodes",
+			Message:  fmt.Sprintf("conflicting remote node %q for %q could not be verified by MD5", hintNodeID, name),
+			Cause:    conflictErr,
 		}
 	}
 	return nil, nil

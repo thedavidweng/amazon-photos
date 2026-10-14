@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -97,4 +98,49 @@ func TestRendererFailureAndQuietHuman(t *testing.T) {
 			t.Errorf("expected quiet output, got stdout=%q stderr=%q", stdout.String(), stderr.String())
 		}
 	})
+}
+
+func TestRendererConcurrentProgressAndVerboseRaceSafe(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	r := &Renderer{
+		Out:     &stdout,
+		Err:     &stderr,
+		JSON:    true,
+		Verbose: true,
+	}
+
+	var wg sync.WaitGroup
+	for worker := range 8 {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := range 25 {
+				r.Progressf("[%d/25] worker-%d.jpg (%d/1024 bytes)", i+1, id, (i+1)*32)
+				r.Verbosef("worker %d diagnostic step %d", id, i)
+			}
+		}(worker)
+	}
+	wg.Wait()
+
+	meta := RuntimeMetaInput{
+		Command:   "upload",
+		Profile:   "default",
+		Region:    "us",
+		RequestID: "req-race",
+		StartedAt: time.Now(),
+	}
+	if err := r.Success(meta, map[string]any{"total": 8}, nil); err != nil {
+		t.Fatalf("Success failed: %v", err)
+	}
+
+	var env model.Envelope
+	if err := json.Unmarshal(stdout.Bytes(), &env); err != nil {
+		t.Fatalf("stdout is not valid JSON: %v (%s)", err, stdout.String())
+	}
+	if !env.OK {
+		t.Errorf("expected ok=true envelope, got %+v", env)
+	}
+	if stderr.Len() == 0 {
+		t.Errorf("expected progress output on stderr")
+	}
 }

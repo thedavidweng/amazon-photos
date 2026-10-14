@@ -9,19 +9,33 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     name: Check (Linux)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
-      - run: mise run check
-      - run: git diff --exit-code
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install toolchain via mise
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          install_args: go gofumpt golangci-lint
+      - name: Run quality gates
+        run: mise run check
+      - name: Verify clean working tree
+        run: git diff --exit-code
       - name: Build and smoke test aphotos
         run: |
-          go build -o aphotos ./cmd/aphotos
+          go build -trimpath -o aphotos ./cmd/aphotos
           ./aphotos --version
+          ./aphotos --help > /dev/null
           ./aphotos doctor --allow-unconfigured --json
 
   matrix:
@@ -31,8 +45,68 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
-      - run: go test ./...
-      - run: go build ./cmd/aphotos
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Go via mise
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          install_args: go
+      - name: Run tests
+        run: go test ./...
+      - name: Run race tests
+        run: go test -race ./...
+      - name: Build CLI
+        run: go build ./cmd/aphotos
+
+  snapshot:
+    name: Release Dry Run (GoReleaser Snapshot)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - name: Run GoReleaser snapshot
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=sign --parallelism 2
+      - name: Verify snapshot artifacts, SBOMs, Homebrew formula, and SHA-256
+        run: |
+          set -euo pipefail
+          test -s dist/checksums.txt
+          (cd dist && sha256sum -c checksums.txt)
+          test -s dist/homebrew/aphotos.rb
+          grep -q 'class Aphotos < Formula' dist/homebrew/aphotos.rb
+          for os_arch in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+            archive=$(ls dist/aphotos_*_${os_arch}.tar.gz)
+            test -s "$archive"
+            test -s "${archive}.sbom.json"
+            tar -tzf "$archive" | grep -qx "aphotos"
+          done
+          for win_arch in windows_amd64 windows_arm64; do
+            zipfile=$(ls dist/aphotos_*_${win_arch}.zip)
+            test -s "$zipfile"
+            test -s "${zipfile}.sbom.json"
+            unzip -l "$zipfile" | grep -q "aphotos.exe"
+          done
+          for pkg_ext in deb rpm apk; do
+            test -s "$(ls dist/aphotos_*_linux_amd64.${pkg_ext})"
+            test -s "$(ls dist/aphotos_*_linux_arm64.${pkg_ext})"
+          done
+          ./dist/amazon-photos_linux_amd64_v1/aphotos --version
+          ./dist/amazon-photos_linux_amd64_v1/aphotos doctor --allow-unconfigured --json

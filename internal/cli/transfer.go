@@ -56,7 +56,7 @@ func newUploadCmd() *cobra.Command {
 				},
 			})
 
-			summary := summarizeTransfers("upload", results, dryRun, parentID, albumID)
+			summary, warnings := summarizeTransfers("upload", results, dryRun, parentID, albumID)
 
 			trimmedAlbum := strings.TrimSpace(albumID)
 			if trimmedAlbum != "" && !dryRun {
@@ -69,7 +69,7 @@ func newUploadCmd() *cobra.Command {
 				}
 				if len(confirmedIDs) > 0 {
 					if albErr := client.AddAlbumMembers(ctx, trimmedAlbum, confirmedIDs); albErr != nil {
-						return r.PartialFailure(meta, summary, albErr, nil)
+						return r.PartialFailure(meta, summary, albErr, warnings)
 					}
 					summary.AlbumAdded = confirmedIDs
 				}
@@ -77,12 +77,12 @@ func newUploadCmd() *cobra.Command {
 
 			if err != nil {
 				if summary.Confirmed > 0 || summary.Skipped > 0 || continueOnError {
-					return r.PartialFailure(meta, summary, err, nil)
+					return r.PartialFailure(meta, summary, err, warnings)
 				}
-				return r.FailWithData(meta, summary, err, nil)
+				return r.FailWithData(meta, summary, err, warnings)
 			}
 
-			return r.Render(meta, summary, nil, func() {
+			return r.Render(meta, summary, warnings, func() {
 				renderTransferSummaryHuman(r, summary)
 			})
 		}),
@@ -99,6 +99,7 @@ func newUploadCmd() *cobra.Command {
 
 func newDownloadCmd() *cobra.Command {
 	var outDir string
+	var onConflict string
 	var continueOnError bool
 
 	cmd := &cobra.Command{
@@ -110,9 +111,14 @@ func newDownloadCmd() *cobra.Command {
 			if dest == "" {
 				dest = "."
 			}
+			policy := aphotos.ConflictPolicy(strings.ToLower(strings.TrimSpace(onConflict)))
+			if policy == "" {
+				policy = aphotos.ConflictFail
+			}
 
 			results, err := client.DownloadBatch(ctx, args, aphotos.BatchDownloadOptions{
 				DestDir:         dest,
+				ConflictPolicy:  policy,
 				ContinueOnError: continueOnError,
 				Progress: func(p aphotos.TransferProgress) {
 					if p.Done > 0 && p.TotalItems > 0 {
@@ -121,26 +127,27 @@ func newDownloadCmd() *cobra.Command {
 				},
 			})
 
-			summary := summarizeTransfers("download", results, false, "", "")
+			summary, warnings := summarizeTransfers("download", results, false, "", "")
 			if err != nil {
 				if summary.Confirmed > 0 || summary.Skipped > 0 || continueOnError {
-					return r.PartialFailure(meta, summary, err, nil)
+					return r.PartialFailure(meta, summary, err, warnings)
 				}
-				return r.FailWithData(meta, summary, err, nil)
+				return r.FailWithData(meta, summary, err, warnings)
 			}
 
-			return r.Render(meta, summary, nil, func() {
+			return r.Render(meta, summary, warnings, func() {
 				renderTransferSummaryHuman(r, summary)
 			})
 		}),
 	}
 
 	cmd.Flags().StringVar(&outDir, "out", ".", "destination directory for downloaded files")
+	cmd.Flags().StringVar(&onConflict, "on-conflict", "fail", "local file conflict resolution policy: skip, fail, or rename")
 	cmd.Flags().BoolVar(&continueOnError, "continue-on-error", false, "continue downloading remaining nodes when an item fails")
 	return cmd
 }
 
-func summarizeTransfers(op string, items []aphotos.TransferResult, dryRun bool, parentID, albumID string) TransferSummaryData {
+func summarizeTransfers(op string, items []aphotos.TransferResult, dryRun bool, parentID, albumID string) (summary TransferSummaryData, warnings []string) {
 	if items == nil {
 		items = []aphotos.TransferResult{}
 	}
@@ -152,6 +159,7 @@ func summarizeTransfers(op string, items []aphotos.TransferResult, dryRun bool, 
 		Total:     len(items),
 		Items:     items,
 	}
+
 	for i := range items {
 		switch items[i].Status {
 		case aphotos.TransferConfirmed:
@@ -163,8 +171,11 @@ func summarizeTransfers(op string, items []aphotos.TransferResult, dryRun bool, 
 		case aphotos.TransferFailed:
 			s.Failed++
 		}
+		if w := strings.TrimSpace(items[i].Warning); w != "" {
+			warnings = append(warnings, w)
+		}
 	}
-	return s
+	return s, warnings
 }
 
 func renderTransferSummaryHuman(r *output.Renderer, s TransferSummaryData) {
@@ -172,7 +183,11 @@ func renderTransferSummaryHuman(r *output.Renderer, s TransferSummaryData) {
 		s.Operation, s.Total, s.Confirmed, s.Skipped, s.Unconfirmed, s.Failed)
 	for i := range s.Items {
 		it := &s.Items[i]
-		r.Human("  [%s] name=%s id=%s path=%s bytes=%d", it.Status, it.Name, it.NodeID, it.LocalPath, it.Bytes)
+		if it.Warning != "" {
+			r.Human("  [%s] name=%s id=%s path=%s bytes=%d warning=%q", it.Status, it.Name, it.NodeID, it.LocalPath, it.Bytes, it.Warning)
+		} else {
+			r.Human("  [%s] name=%s id=%s path=%s bytes=%d", it.Status, it.Name, it.NodeID, it.LocalPath, it.Bytes)
+		}
 	}
 }
 

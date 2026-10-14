@@ -2,6 +2,7 @@ package aphotos
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -48,7 +49,9 @@ type TransferResult struct {
 	LocalPath        string         `json:"localPath,omitempty"`
 	Bytes            int64          `json:"bytes"`
 	MD5              string         `json:"md5,omitempty"`
+	MD5Verified      bool           `json:"md5Verified,omitempty"`
 	ConflictResolved bool           `json:"conflictResolved,omitempty"`
+	Warning          string         `json:"warning,omitempty"`
 	Error            error          `json:"-"`
 	ErrorMessage     string         `json:"error,omitempty"`
 }
@@ -68,6 +71,7 @@ type BatchUploadOptions struct {
 type BatchDownloadOptions struct {
 	DestDir         string
 	OwnerID         string
+	ConflictPolicy  ConflictPolicy
 	ContinueOnError bool
 	Concurrency     int
 	Progress        ProgressFunc
@@ -176,6 +180,9 @@ func (c *Client) DownloadBatch(ctx context.Context, nodeIDs []string, opts Batch
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if _, err := normalizeConflictPolicy(opts.ConflictPolicy); err != nil {
+		return nil, err
+	}
 	cleanedIDs := make([]string, 0, len(nodeIDs))
 	for _, id := range nodeIDs {
 		trimmed := strings.TrimSpace(id)
@@ -220,11 +227,46 @@ func (c *Client) DownloadBatch(ctx context.Context, nodeIDs []string, opts Batch
 				opts.Progress(p)
 			}
 		}
+
+		var fileName string
+		var expectedSize int64
+		var expectedMD5 string
+		var nodeMeta *Node
+		metaNode, metaErr := c.GetNode(workCtx, nodeID)
+		if metaErr != nil {
+			var nfErr *NotFoundError
+			if errors.As(metaErr, &nfErr) || errors.Is(metaErr, context.Canceled) || errors.Is(metaErr, context.DeadlineExceeded) {
+				doneCount.Add(1)
+				return *failedDownloadResult(nodeID, "", 0, "", metaErr), metaErr
+			}
+			var authErr *AuthenticationError
+			var permErr *PermissionError
+			var rlErr *RateLimitError
+			if errors.As(metaErr, &authErr) || errors.As(metaErr, &permErr) || errors.As(metaErr, &rlErr) {
+				doneCount.Add(1)
+				return *failedDownloadResult(nodeID, "", 0, "", metaErr), metaErr
+			}
+		} else if metaNode != nil {
+			nodeMeta = metaNode
+			fileName = strings.TrimSpace(metaNode.Name)
+			if metaNode.ContentProperties != nil {
+				expectedSize = metaNode.ContentProperties.Size
+				expectedMD5 = strings.TrimSpace(metaNode.ContentProperties.MD5)
+			}
+			if ownerID == "" && strings.TrimSpace(metaNode.OwnerID) != "" {
+				ownerID = strings.TrimSpace(metaNode.OwnerID)
+			}
+		}
+
 		res, dlErr := c.Download(workCtx, DownloadRequest{
-			NodeID:   nodeID,
-			OwnerID:  ownerID,
-			DestDir:  opts.DestDir,
-			Progress: itemProgress,
+			NodeID:         nodeID,
+			OwnerID:        ownerID,
+			DestDir:        opts.DestDir,
+			FileName:       fileName,
+			ExpectedSize:   expectedSize,
+			ExpectedMD5:    expectedMD5,
+			ConflictPolicy: opts.ConflictPolicy,
+			Progress:       itemProgress,
 		})
 		doneNow := int(doneCount.Add(1))
 		if opts.Progress != nil && res != nil {
@@ -238,7 +280,13 @@ func (c *Client) DownloadBatch(ctx context.Context, nodeIDs []string, opts Batch
 			})
 		}
 		if res == nil {
-			return *failedDownloadResult(nodeID, "", 0, "", dlErr), dlErr
+			return *failedDownloadResult(nodeID, fileName, 0, "", dlErr), dlErr
+		}
+		if nodeMeta != nil && res.Node == nil {
+			res.Node = nodeMeta
+		}
+		if dlErr == nil && res.Status == TransferConfirmed && !res.MD5Verified && res.Warning == "" {
+			res.Warning = fmt.Sprintf("node %s downloaded without remote MD5 verification (remote node metadata did not provide MD5)", nodeID)
 		}
 		return *res, dlErr
 	})

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/thedavidweng/amazon-photos/internal/model"
@@ -19,6 +20,7 @@ type RuntimeMetaInput struct {
 }
 
 type Renderer struct {
+	mu      sync.Mutex
 	Out     io.Writer
 	Err     io.Writer
 	JSON    bool
@@ -41,9 +43,7 @@ func (r *Renderer) Failure(metaInput RuntimeMetaInput, errBody model.ErrorBody, 
 		errBody.Category = model.CategoryForCode(errBody.Code)
 	}
 	if !r.JSON {
-		if r.Err != nil {
-			_, _ = fmt.Fprintf(r.Err, "Error [%s]: %s\n", errBody.Code, errBody.Message)
-		}
+		r.writeErrf("Error [%s]: %s\n", errBody.Code, errBody.Message)
 		return &model.CommandError{
 			Code:    errBody.Code,
 			Message: errBody.Message,
@@ -100,9 +100,7 @@ func (r *Renderer) PartialFailure(metaInput RuntimeMetaInput, data any, err erro
 		errBody.Message = aphotos.Redact(err.Error())
 	}
 	if !r.JSON {
-		if r.Err != nil {
-			_, _ = fmt.Fprintf(r.Err, "Error [%s]: %s\n", errBody.Code, errBody.Message)
-		}
+		r.writeErrf("Error [%s]: %s\n", errBody.Code, errBody.Message)
 		return &model.CommandError{
 			Code:    model.ErrPartialSuccess,
 			Message: errBody.Message,
@@ -131,9 +129,7 @@ func (r *Renderer) FailWithData(metaInput RuntimeMetaInput, data any, err error,
 		return nil
 	}
 	if !r.JSON {
-		if r.Err != nil {
-			_, _ = fmt.Fprintf(r.Err, "Error [%s]: %s\n", cmdErr.Code, cmdErr.Error())
-		}
+		r.writeErrf("Error [%s]: %s\n", cmdErr.Code, cmdErr.Error())
 		return cmdErr
 	}
 	env := model.Envelope{
@@ -161,6 +157,8 @@ func (r *Renderer) Human(format string, args ...any) {
 		return
 	}
 	msg := aphotos.Redact(fmt.Sprintf(format, args...))
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	_, _ = fmt.Fprintln(r.Out, msg)
 }
 
@@ -169,6 +167,8 @@ func (r *Renderer) Progressf(format string, args ...any) {
 		return
 	}
 	msg := aphotos.Redact(fmt.Sprintf(format, args...))
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	_, _ = fmt.Fprintln(r.Err, msg)
 }
 
@@ -177,7 +177,18 @@ func (r *Renderer) Verbosef(format string, args ...any) {
 		return
 	}
 	msg := aphotos.Redact(fmt.Sprintf(format, args...))
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	_, _ = fmt.Fprintln(r.Err, msg)
+}
+
+func (r *Renderer) writeErrf(format string, args ...any) {
+	if r.Err == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	_, _ = fmt.Fprintf(r.Err, format, args...)
 }
 
 func (r *Renderer) buildMeta(input RuntimeMetaInput, warnings []string) model.Meta {
@@ -212,6 +223,8 @@ func (r *Renderer) writeJSON(env *model.Envelope) error {
 		return err
 	}
 	redacted := aphotos.Redact(string(raw))
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	_, err = io.WriteString(r.Out, redacted+"\n")
 	return err
 }

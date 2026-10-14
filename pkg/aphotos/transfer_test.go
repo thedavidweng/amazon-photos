@@ -457,38 +457,78 @@ func TestUpload_ConflictPolicies(t *testing.T) {
 }
 
 func TestUpload_ConflictSkipFailsWhenUnverified(t *testing.T) {
-	client := newTestTransferClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.Method == http.MethodPost {
-			_, _ = io.Copy(io.Discard, req.Body)
-			return &http.Response{
-				StatusCode: http.StatusConflict,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader(`{"message":"Conflict without node ID"}`)),
-			}, nil
-		}
-		if req.Method == http.MethodGet && req.URL.Path == "/drive/v1/nodes" {
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader(`{"count":0,"data":[]}`)),
-			}, nil
-		}
-		return nil, errors.New("unexpected request")
-	}))
+	t.Run("409 without node ID and empty remote query returns ConflictError", func(t *testing.T) {
+		client := newTestTransferClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.Method == http.MethodPost {
+				_, _ = io.Copy(io.Discard, req.Body)
+				return &http.Response{
+					StatusCode: http.StatusConflict,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"message":"Conflict without node ID"}`)),
+				}, nil
+			}
+			if req.Method == http.MethodGet && req.URL.Path == "/drive/v1/nodes" {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"count":0,"data":[]}`)),
+				}, nil
+			}
+			return nil, errors.New("unexpected request")
+		}))
 
-	res, err := client.Upload(context.Background(), aphotos.UploadRequest{
-		Name:           "ghost.jpg",
-		ParentNodeID:   "ROOT1",
-		Body:           strings.NewReader("ghost-data"),
-		ConflictPolicy: aphotos.ConflictSkip,
+		res, err := client.Upload(context.Background(), aphotos.UploadRequest{
+			Name:           "ghost.jpg",
+			ParentNodeID:   "ROOT1",
+			Body:           strings.NewReader("ghost-data"),
+			ConflictPolicy: aphotos.ConflictSkip,
+		})
+		var conflictErr *aphotos.ConflictError
+		if !errors.As(err, &conflictErr) {
+			t.Fatalf("expected *ConflictError when 409 has no node ID and remote query finds nothing, got %T: %v", err, err)
+		}
+		if res == nil || res.Status != aphotos.TransferFailed {
+			t.Fatalf("expected TransferFailed, got %+v", res)
+		}
 	})
-	var conflictErr *aphotos.ConflictError
-	if !errors.As(err, &conflictErr) {
-		t.Fatalf("expected *ConflictError when 409 has no node ID and remote query finds nothing, got %T: %v", err, err)
-	}
-	if res == nil || res.Status != aphotos.TransferFailed {
-		t.Fatalf("expected TransferFailed, got %+v", res)
-	}
+
+	t.Run("409 with hint node ID or same-name remote node lacking MD5 returns unconfirmed and never skips", func(t *testing.T) {
+		client := newTestTransferClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.Method == http.MethodPost {
+				_, _ = io.Copy(io.Discard, req.Body)
+				return &http.Response{
+					StatusCode: http.StatusConflict,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"message":"NODE_EXISTS","info":{"nodeId":"NO_MD5_NODE_1"}}`)),
+				}, nil
+			}
+			if req.Method == http.MethodGet && req.URL.Path == "/drive/v1/nodes" {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"count":1,"data":[{"id":"NO_MD5_NODE_1","name":"dup.jpg","kind":"FILE","status":"AVAILABLE","contentProperties":{"size":10}}]}`)),
+				}, nil
+			}
+			return nil, errors.New("unexpected request")
+		}))
+
+		res, err := client.Upload(context.Background(), aphotos.UploadRequest{
+			Name:           "dup.jpg",
+			ParentNodeID:   "ROOT1",
+			Body:           strings.NewReader("0123456789"),
+			ConflictPolicy: aphotos.ConflictSkip,
+		})
+		if err == nil {
+			t.Fatal("expected error when remote node lacks MD5, got nil")
+		}
+		var partialErr *aphotos.PartialResultError
+		if !errors.As(err, &partialErr) {
+			t.Fatalf("expected *PartialResultError when remote node lacks MD5, got %T: %v", err, err)
+		}
+		if res == nil || res.Status != aphotos.TransferUnconfirmed {
+			t.Fatalf("expected TransferUnconfirmed, got %+v", res)
+		}
+	})
 }
 
 func TestUploadFile_StreamsFromLocalDiskAndSupportsConflictRename(t *testing.T) {
@@ -1079,4 +1119,226 @@ func TestDownload_RFC5987FilenameStarAndSignedURLRedaction(t *testing.T) {
 			t.Fatalf("error message leaked signed templink URL secrets: %s", msg)
 		}
 	})
+}
+
+func TestDownload_LocalConflictPoliciesAndConcurrentSafety(t *testing.T) {
+	payload := []byte("remote-photo-bytes-v2")
+	sum := md5.Sum(payload)
+	payloadMD5 := hex.EncodeToString(sum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Disposition", `attachment; filename="conflict.jpg"`)
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	client, err := aphotos.NewClient(aphotos.Options{
+		Region:   aphotos.RegionUS,
+		DriveURL: srv.URL + "/drive/v1",
+		Cookies: map[string]string{
+			"session-id": "111-2222222-3333333",
+			"ubid-main":  "130-0000000-0000000",
+			"at-main":    "Atza|token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	t.Run("default ConflictFail never overwrites existing local file", func(t *testing.T) {
+		destDir := t.TempDir()
+		existingPath := filepath.Join(destDir, "conflict.jpg")
+		original := []byte("original-precious-local-file")
+		if err := os.WriteFile(existingPath, original, 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		res, err := client.Download(context.Background(), aphotos.DownloadRequest{
+			NodeID:      "NODE_1",
+			OwnerID:     "OWN1",
+			DestDir:     destDir,
+			ExpectedMD5: payloadMD5,
+		})
+		var conflictErr *aphotos.ConflictError
+		if !errors.As(err, &conflictErr) {
+			t.Fatalf("expected *ConflictError when destination file exists, got %T: %v", err, err)
+		}
+		if res == nil || res.Status != aphotos.TransferFailed {
+			t.Fatalf("expected TransferFailed, got %+v", res)
+		}
+		after, _ := os.ReadFile(existingPath)
+		if !bytes.Equal(after, original) {
+			t.Fatalf("existing file was overwritten: got %q, want %q", string(after), string(original))
+		}
+	})
+
+	t.Run("ConflictSkip preserves existing local file and returns skipped", func(t *testing.T) {
+		destDir := t.TempDir()
+		existingPath := filepath.Join(destDir, "conflict.jpg")
+		original := []byte("original-precious-local-file")
+		if err := os.WriteFile(existingPath, original, 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		res, err := client.Download(context.Background(), aphotos.DownloadRequest{
+			NodeID:         "NODE_1",
+			OwnerID:        "OWN1",
+			DestDir:        destDir,
+			ConflictPolicy: aphotos.ConflictSkip,
+		})
+		if err != nil {
+			t.Fatalf("ConflictSkip returned unexpected error: %v", err)
+		}
+		if res == nil || res.Status != aphotos.TransferSkipped || !res.ConflictResolved {
+			t.Fatalf("expected TransferSkipped with ConflictResolved=true, got %+v", res)
+		}
+		after, _ := os.ReadFile(existingPath)
+		if !bytes.Equal(after, original) {
+			t.Fatalf("existing file was modified: got %q, want %q", string(after), string(original))
+		}
+	})
+
+	t.Run("ConflictRename disambiguates filename without overwriting", func(t *testing.T) {
+		destDir := t.TempDir()
+		existingPath := filepath.Join(destDir, "conflict.jpg")
+		original := []byte("original-precious-local-file")
+		if err := os.WriteFile(existingPath, original, 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		res, err := client.Download(context.Background(), aphotos.DownloadRequest{
+			NodeID:         "NODE_1",
+			OwnerID:        "OWN1",
+			DestDir:        destDir,
+			ExpectedMD5:    payloadMD5,
+			ConflictPolicy: aphotos.ConflictRename,
+		})
+		if err != nil {
+			t.Fatalf("ConflictRename returned error: %v", err)
+		}
+		if res == nil || res.Status != aphotos.TransferConfirmed || res.Name != "conflict (1).jpg" || !res.ConflictResolved || !res.MD5Verified {
+			t.Fatalf("unexpected ConflictRename result: %+v", res)
+		}
+		afterOrig, _ := os.ReadFile(existingPath)
+		if !bytes.Equal(afterOrig, original) {
+			t.Fatalf("original file modified: %q", string(afterOrig))
+		}
+		renamedBytes, err := os.ReadFile(filepath.Join(destDir, "conflict (1).jpg"))
+		if err != nil || !bytes.Equal(renamedBytes, payload) {
+			t.Fatalf("renamed file content mismatch: err=%v content=%q", err, string(renamedBytes))
+		}
+	})
+
+	t.Run("concurrent downloads of same filename with ConflictRename never overwrite each other", func(t *testing.T) {
+		destDir := t.TempDir()
+		const workers = 6
+		errs := make(chan error, workers)
+		paths := make(chan string, workers)
+		for i := range workers {
+			go func(idx int) {
+				res, dlErr := client.Download(context.Background(), aphotos.DownloadRequest{
+					NodeID:         fmt.Sprintf("NODE_%d", idx),
+					OwnerID:        "OWN1",
+					DestDir:        destDir,
+					ExpectedMD5:    payloadMD5,
+					ConflictPolicy: aphotos.ConflictRename,
+				})
+				if dlErr != nil {
+					errs <- dlErr
+					return
+				}
+				paths <- res.LocalPath
+				errs <- nil
+			}(i)
+		}
+		seen := make(map[string]bool)
+		for range workers {
+			if e := <-errs; e != nil {
+				t.Fatalf("concurrent download failed: %v", e)
+			}
+		}
+		close(paths)
+		for p := range paths {
+			if seen[p] {
+				t.Fatalf("duplicate output path written by concurrent workers: %s", p)
+			}
+			seen[p] = true
+		}
+		if len(seen) != workers {
+			t.Fatalf("expected %d distinct files, got %d", workers, len(seen))
+		}
+	})
+}
+
+func TestDownloadBatch_MetadataVerificationAndMissingMD5Warning(t *testing.T) {
+	goodPayload := []byte("verified-batch-content-12345")
+	goodSum := md5.Sum(goodPayload)
+	goodMD5 := hex.EncodeToString(goodSum[:])
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/drive/v1/nodes/NODE_VERIFIED":
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, `{"id":"NODE_VERIFIED","name":"verified.jpg","kind":"FILE","contentProperties":{"size":%d,"md5":%q}}`, len(goodPayload), goodMD5)
+		case "/drive/v1/nodes/NODE_VERIFIED/contentRedirection":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(goodPayload)
+		case "/drive/v1/nodes/NODE_CORRUPT":
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, `{"id":"NODE_CORRUPT","name":"corrupt.jpg","kind":"FILE","contentProperties":{"size":%d,"md5":"ffffffffffffffffffffffffffffffff"}}`, len(goodPayload))
+		case "/drive/v1/nodes/NODE_CORRUPT/contentRedirection":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(goodPayload)
+		case "/drive/v1/nodes/NODE_NO_MD5":
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprintf(w, `{"id":"NODE_NO_MD5","name":"nomd5.jpg","kind":"FILE","contentProperties":{"size":%d}}`, len(goodPayload))
+		case "/drive/v1/nodes/NODE_NO_MD5/contentRedirection":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(goodPayload)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := aphotos.NewClient(aphotos.Options{
+		Region:   aphotos.RegionUS,
+		DriveURL: srv.URL + "/drive/v1",
+		Cookies: map[string]string{
+			"session-id": "111-2222222-3333333",
+			"ubid-main":  "130-0000000-0000000",
+			"at-main":    "Atza|token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	destDir := t.TempDir()
+	results, err := client.DownloadBatch(context.Background(), []string{"NODE_VERIFIED", "NODE_NO_MD5", "NODE_CORRUPT"}, aphotos.BatchDownloadOptions{
+		DestDir:         destDir,
+		OwnerID:         "OWN1",
+		ContinueOnError: true,
+		Concurrency:     2,
+	})
+	var partialErr *aphotos.PartialResultError
+	if !errors.As(err, &partialErr) {
+		t.Fatalf("expected *PartialResultError when one item fails MD5 verification, got %T: %v", err, err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("len(results) = %d, want 3", len(results))
+	}
+	if results[0].Status != aphotos.TransferConfirmed || !results[0].MD5Verified || results[0].Warning != "" {
+		t.Errorf("expected NODE_VERIFIED confirmed with MD5Verified=true and no warning, got %+v", results[0])
+	}
+	if results[1].Status != aphotos.TransferConfirmed || results[1].MD5Verified || results[1].Warning == "" {
+		t.Errorf("expected NODE_NO_MD5 confirmed with MD5Verified=false and explicit warning, got %+v", results[1])
+	}
+	if results[2].Status != aphotos.TransferFailed {
+		t.Errorf("expected NODE_CORRUPT to fail MD5 verification, got %+v", results[2])
+	}
 }

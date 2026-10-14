@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -631,6 +633,8 @@ func TestUploadAndDownloadE2E(t *testing.T) {
 			switch {
 			case req.Method == http.MethodGet && req.URL.Path == "/drive/v1/nodes":
 				return jsonHTTPResponse(200, `{"count":1,"data":[{"id":"root-1","ownerId":"own-1","kind":"FOLDER","isRoot":true}]}`), nil
+			case req.Method == http.MethodGet && req.URL.Path == "/drive/v1/nodes/node-ok":
+				return jsonHTTPResponse(200, `{"id":"node-ok","name":"downloaded.jpg","kind":"FILE","contentProperties":{"size":10,"md5":"781e5e245d69b566979b86e28d23f2c7"}}`), nil
 			case req.Method == http.MethodGet && req.URL.Path == "/drive/v1/nodes/node-ok/contentRedirection":
 				h := make(http.Header)
 				h.Set("Content-Disposition", `attachment; filename="downloaded.jpg"`)
@@ -640,7 +644,7 @@ func TestUploadAndDownloadE2E(t *testing.T) {
 					Header:     h,
 					Body:       io.NopCloser(strings.NewReader("0123456789")),
 				}, nil
-			case req.Method == http.MethodGet && req.URL.Path == "/drive/v1/nodes/node-missing/contentRedirection":
+			case req.Method == http.MethodGet && (req.URL.Path == "/drive/v1/nodes/node-missing" || req.URL.Path == "/drive/v1/nodes/node-missing/contentRedirection"):
 				return jsonHTTPResponse(404, `{"message":"Node not found"}`), nil
 			default:
 				t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
@@ -660,6 +664,82 @@ func TestUploadAndDownloadE2E(t *testing.T) {
 		stdout, _, code, _ = execCLI(t, rt, "--config", cfgPath, "--json", "download", "--out", t.TempDir(), "--continue-on-error", "node-ok", "node-missing")
 		if code != 5 {
 			t.Fatalf("expected exit code 5 for partial download failure, got %d (%s)", code, stdout)
+		}
+	})
+
+	t.Run("concurrent upload and download progress race safety and --quiet semantics", func(t *testing.T) {
+		multiDir := t.TempDir()
+		uploadPaths := make([]string, 0, 6)
+		for i := range 6 {
+			p := filepath.Join(multiDir, "img_"+string(rune('a'+i))+".jpg")
+			if err := os.WriteFile(p, []byte("0123456789"), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			uploadPaths = append(uploadPaths, p)
+		}
+		rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch {
+			case req.Method == http.MethodGet && req.URL.Path == "/drive/v1/nodes":
+				return jsonHTTPResponse(200, `{"count":1,"data":[{"id":"root-1","ownerId":"own-1","kind":"FOLDER","isRoot":true}]}`), nil
+			case req.Method == http.MethodPost && req.URL.Path == "/cdproxy/nodes":
+				_, _ = io.Copy(io.Discard, req.Body)
+				name := req.URL.Query().Get("name")
+				return jsonHTTPResponse(201, `{"id":"id-`+name+`","name":"`+name+`","kind":"FILE","status":"AVAILABLE"}`), nil
+			case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/contentRedirection"):
+				h := make(http.Header)
+				h.Set("Content-Length", "10")
+				return &http.Response{
+					StatusCode: 200,
+					Header:     h,
+					Body:       io.NopCloser(strings.NewReader("0123456789")),
+				}, nil
+			case req.Method == http.MethodGet && strings.HasPrefix(req.URL.Path, "/drive/v1/nodes/dl-"):
+				id := strings.TrimPrefix(req.URL.Path, "/drive/v1/nodes/")
+				return jsonHTTPResponse(200, `{"id":"`+id+`","name":"`+id+`.jpg","kind":"FILE","contentProperties":{"size":10,"md5":"781e5e245d69b566979b86e28d23f2c7"}}`), nil
+			default:
+				t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+				return nil, nil
+			}
+		})
+
+		upArgs := append([]string{"--config", cfgPath, "--json", "upload"}, uploadPaths...)
+		stdout, stderr, code, err := execCLI(t, rt, upArgs...)
+		if err != nil || code != 0 {
+			t.Fatalf("concurrent upload failed: code=%d err=%v stderr=%s", code, err, stderr)
+		}
+		var upEnv model.Envelope
+		if uErr := json.Unmarshal([]byte(stdout), &upEnv); uErr != nil || !upEnv.OK {
+			t.Fatalf("stdout is not pure valid JSON: %v (%s)", uErr, stdout)
+		}
+		if stderr == "" {
+			t.Errorf("expected progress output on stderr when --quiet is not set")
+		}
+
+		quietArgs := append([]string{"--config", cfgPath, "--json", "--quiet", "upload"}, uploadPaths...)
+		qStdout, qStderr, qCode, qErr := execCLI(t, rt, quietArgs...)
+		if qErr != nil || qCode != 0 {
+			t.Fatalf("quiet upload failed: code=%d err=%v", qCode, qErr)
+		}
+		if qStderr != "" {
+			t.Errorf("expected empty stderr with --quiet, got %q", qStderr)
+		}
+		var qEnv model.Envelope
+		if uErr := json.Unmarshal([]byte(qStdout), &qEnv); uErr != nil || !qEnv.OK {
+			t.Fatalf("quiet stdout is not valid JSON: %v (%s)", uErr, qStdout)
+		}
+
+		dlOutDir := t.TempDir()
+		dlArgs := []string{"--config", cfgPath, "--json", "download", "--out", dlOutDir, "dl-1", "dl-2", "dl-3", "dl-4", "dl-5", "dl-6"}
+		dlStdout, dlStderr, dlCode, dlErr := execCLI(t, rt, dlArgs...)
+		if dlErr != nil || dlCode != 0 {
+			t.Fatalf("concurrent download failed: code=%d err=%v stderr=%s", dlCode, dlErr, dlStderr)
+		}
+		var dlEnv model.Envelope
+		if uErr := json.Unmarshal([]byte(dlStdout), &dlEnv); uErr != nil || !dlEnv.OK {
+			t.Fatalf("download stdout is not valid JSON: %v (%s)", uErr, dlStdout)
+		}
+		if dlStderr == "" {
+			t.Errorf("expected download progress on stderr")
 		}
 	})
 }
@@ -739,11 +819,11 @@ func TestDocumentationAndReleaseContractsSync(t *testing.T) {
 		return string(data)
 	}
 
-	t.Run("COMMANDS.md documents every command and flag and contentDate vs createdDate", func(t *testing.T) {
-		commandsDoc := readRepoFile(t, "COMMANDS.md")
+	t.Run("docs/reference/cli-commands.md documents every command and flag and contentDate vs createdDate", func(t *testing.T) {
+		commandsDoc := readRepoFile(t, filepath.Join("docs", "reference", "cli-commands.md"))
 
 		if !strings.Contains(commandsDoc, "contentDate") || !strings.Contains(commandsDoc, "createdDate") {
-			t.Errorf("COMMANDS.md must document contentDate (capture date) vs createdDate (upload date)")
+			t.Errorf("docs/reference/cli-commands.md must document contentDate (capture date) vs createdDate (upload date)")
 		}
 
 		root := NewRootCommand(RootOptions{})
@@ -752,7 +832,7 @@ func TestDocumentationAndReleaseContractsSync(t *testing.T) {
 			fullPath := strings.TrimSpace(prefix + " " + cmd.Name())
 			if cmd != root {
 				if !strings.Contains(commandsDoc, fullPath) {
-					t.Errorf("COMMANDS.md missing command %q", fullPath)
+					t.Errorf("docs/reference/cli-commands.md missing command %q", fullPath)
 				}
 			}
 			cmd.NonInheritedFlags().VisitAll(func(f *pflag.Flag) {
@@ -761,7 +841,7 @@ func TestDocumentationAndReleaseContractsSync(t *testing.T) {
 				}
 				flagToken := "--" + f.Name
 				if !strings.Contains(commandsDoc, flagToken) {
-					t.Errorf("COMMANDS.md missing flag %q for command %q", flagToken, fullPath)
+					t.Errorf("docs/reference/cli-commands.md missing flag %q for command %q", flagToken, fullPath)
 				}
 			})
 			cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
@@ -770,7 +850,7 @@ func TestDocumentationAndReleaseContractsSync(t *testing.T) {
 				}
 				flagToken := "--" + f.Name
 				if !strings.Contains(commandsDoc, flagToken) {
-					t.Errorf("COMMANDS.md missing persistent flag %q", flagToken)
+					t.Errorf("docs/reference/cli-commands.md missing persistent flag %q", flagToken)
 				}
 			})
 			for _, sub := range cmd.Commands() {
@@ -783,12 +863,12 @@ func TestDocumentationAndReleaseContractsSync(t *testing.T) {
 		walk(root, "")
 	})
 
-	t.Run("JSON_SCHEMA.md documents envelope fields, error codes, categories, and exit codes", func(t *testing.T) {
-		schemaDoc := readRepoFile(t, "JSON_SCHEMA.md")
+	t.Run("docs/reference/json-schema.md documents envelope fields, error codes, categories, and exit codes", func(t *testing.T) {
+		schemaDoc := readRepoFile(t, filepath.Join("docs", "reference", "json-schema.md"))
 
 		for _, field := range []string{`"ok"`, `"data"`, `"error"`, `"meta"`, `"schema_version"`, `"duration_ms"`, `"request_id"`} {
 			if !strings.Contains(schemaDoc, field) {
-				t.Errorf("JSON_SCHEMA.md missing envelope field %s", field)
+				t.Errorf("docs/reference/json-schema.md missing envelope field %s", field)
 			}
 		}
 
@@ -813,17 +893,93 @@ func TestDocumentationAndReleaseContractsSync(t *testing.T) {
 		}
 		for _, code := range allCodes {
 			if !strings.Contains(schemaDoc, code) {
-				t.Errorf("JSON_SCHEMA.md missing error code %q", code)
+				t.Errorf("docs/reference/json-schema.md missing error code %q", code)
 			}
 			cat := model.CategoryForCode(code)
 			if !strings.Contains(schemaDoc, cat) {
-				t.Errorf("JSON_SCHEMA.md missing category %q for code %q", cat, code)
+				t.Errorf("docs/reference/json-schema.md missing category %q for code %q", cat, code)
 			}
 		}
 		for _, exitStr := range []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "130"} {
 			if !strings.Contains(schemaDoc, exitStr) {
-				t.Errorf("JSON_SCHEMA.md missing exit code %s", exitStr)
+				t.Errorf("docs/reference/json-schema.md missing exit code %s", exitStr)
 			}
+		}
+	})
+
+	t.Run("Diátaxis documentation structure and internal markdown links are valid", func(t *testing.T) {
+		requiredDocs := []string{
+			"docs/tutorials/getting-started-cli.md",
+			"docs/tutorials/first-sdk-client.md",
+			"docs/how-to/batch-transfers.md",
+			"docs/how-to/configure-regions.md",
+			"docs/how-to/agent-automation.md",
+			"docs/how-to/troubleshooting.md",
+			"docs/reference/cli-commands.md",
+			"docs/reference/sdk-api.md",
+			"docs/reference/json-schema.md",
+			"docs/reference/search-filters-and-pagination.md",
+			"docs/reference/regions.md",
+			"docs/reference/configuration.md",
+			"docs/explanation/architecture.md",
+			"docs/explanation/unofficial-api-constraints.md",
+			"docs/explanation/security-model.md",
+			"docs/explanation/transfer-integrity-and-conflicts.md",
+		}
+		for _, rel := range requiredDocs {
+			content := readRepoFile(t, rel)
+			if len(strings.TrimSpace(content)) < 100 {
+				t.Errorf("Diátaxis doc %s is missing or stubbed", rel)
+			}
+		}
+
+		linkRe := regexp.MustCompile(`\[[^\]]+\]\(([^)]+)\)`)
+		err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() {
+				if d.Name() == ".git" || d.Name() == "dist" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(d.Name(), ".md") {
+				return nil
+			}
+			relFile, _ := filepath.Rel(repoRoot, path)
+			if filepath.ToSlash(relFile) == "docs/agents/domain.md" {
+				return nil
+			}
+			raw, rErr := os.ReadFile(path)
+			if rErr != nil {
+				return rErr
+			}
+			matches := linkRe.FindAllStringSubmatch(string(raw), -1)
+			for _, m := range matches {
+				target := strings.TrimSpace(m[1])
+				if target == "" ||
+					strings.HasPrefix(target, "http://") ||
+					strings.HasPrefix(target, "https://") ||
+					strings.HasPrefix(target, "mailto:") ||
+					strings.HasPrefix(target, "#") {
+					continue
+				}
+				if idx := strings.Index(target, "#"); idx >= 0 {
+					target = target[:idx]
+				}
+				if target == "" {
+					continue
+				}
+				resolved := filepath.Join(filepath.Dir(path), target)
+				if _, statErr := os.Stat(resolved); statErr != nil {
+					t.Errorf("%s contains broken relative link %q (resolved: %s)", relFile, m[1], resolved)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("WalkDir markdown link check failed: %v", err)
 		}
 	})
 

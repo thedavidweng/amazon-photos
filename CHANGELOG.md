@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-10-14
+
+### Fixed
+- Synchronized `output.Renderer` writes with a mutex so concurrent batch upload/download progress callbacks never race on `stderr` or `stdout`.
+- Hardened `Upload` `--on-conflict skip` (`handleConflictSkip` / `findConflictingRemoteNode`) to require a verified matching remote `contentProperties.md5` before reporting `skipped`; nodes lacking MD5 return `unconfirmed` (`*PartialResultError`) rather than a false skip.
+- Protected `Download` against overwriting existing local files using atomic file creation (`os.Link` / `O_CREATE|O_EXCL`) and `ConflictPolicy` (`fail`, `skip`, `rename`).
+- Updated `DownloadBatch` to fetch remote node metadata via `GetNode`, verify `ExpectedSize` and `ExpectedMD5`, and emit an explicit warning when a remote node lacks an MD5 digest.
+
+### Changed
+- Added `Client.GetNode`, `DownloadRequest.ConflictPolicy`, `BatchDownloadOptions.ConflictPolicy`, `TransferResult.MD5Verified`, `TransferResult.Warning`, and `aphotos download --on-conflict`.
+- Reorganized documentation under `docs/{tutorials,how-to,reference,explanation}` following the Diátaxis standard.
+- Added read-only `fmt-check`, `vet`, `test-race`, `mod-tidy-check`, GoReleaser snapshot verification, and `jactionlint` workflow linting in CI.
+
 ## [0.1.0] - 2026-10-14
 
 Initial release of the `amazon-photos` Go SDK (`pkg/aphotos`) and `aphotos` CLI (`cmd/aphotos`).
