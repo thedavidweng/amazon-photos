@@ -28,21 +28,7 @@ type browserCookieJSON struct {
 }
 
 func CanonicalCookieName(raw string) string {
-	k := strings.ToLower(strings.TrimSpace(raw))
-	switch {
-	case k == "session_id" || k == "session-id":
-		return "session-id"
-	case k == "ubid_main" || k == "ubid-main":
-		return "ubid-main"
-	case k == "at_main" || k == "at-main":
-		return "at-main"
-	case strings.HasPrefix(k, "ubid_acb"):
-		return "ubid-acb" + strings.TrimPrefix(k, "ubid_acb")
-	case strings.HasPrefix(k, "at_acb"):
-		return "at-acb" + strings.TrimPrefix(k, "at_acb")
-	default:
-		return strings.TrimSpace(raw)
-	}
+	return aphotos.CanonicalCookieKey(raw)
 }
 
 func ParseCookieFile(path string) (map[string]string, error) {

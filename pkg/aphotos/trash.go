@@ -2,7 +2,6 @@ package aphotos
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -41,27 +40,9 @@ type restoreFromTrashPayload struct {
 }
 
 func (c *Client) ListTrash(ctx context.Context, opts TrashListOptions) ([]Node, int, error) {
-	if opts.Offset < 0 {
-		return nil, 0, &ConfigError{
-			Field:   "offset",
-			Message: "offset cannot be negative",
-		}
-	}
-	limit := opts.Limit
-	if limit <= 0 {
-		limit = 200
-	} else if limit > 200 {
-		limit = 200
-	}
-	if opts.Offset >= 9999 {
-		return nil, 0, &InvalidFilterError{
-			StatusCode: http.StatusBadRequest,
-			Endpoint:   "/trash",
-			Message:    "Offset + limit cannot be greater than 9999",
-		}
-	}
-	if opts.Offset+limit > 9999 {
-		limit = 9999 - opts.Offset
+	normOffset, normLimit, err := normalizeBoundedOffsetAndLimit("/trash", opts.Offset, opts.Limit)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	filter := strings.TrimSpace(opts.Filter)
@@ -76,8 +57,8 @@ func (c *Client) ListTrash(ctx context.Context, opts TrashListOptions) ([]Node, 
 	params := baseQueryParams()
 	params.Set("filters", filter)
 	params.Set("sort", sortExpr)
-	params.Set("limit", strconv.Itoa(limit))
-	params.Set("offset", strconv.Itoa(opts.Offset))
+	params.Set("limit", strconv.Itoa(normLimit))
+	params.Set("offset", strconv.Itoa(normOffset))
 
 	var resp nodesListResponse
 	if err := c.doReadJSON(ctx, "/trash", params, &resp); err != nil {
@@ -87,56 +68,20 @@ func (c *Client) ListTrash(ctx context.Context, opts TrashListOptions) ([]Node, 
 }
 
 func (c *Client) ListAllTrash(ctx context.Context) ([]Node, error) {
-	const pageSize = 200
-	var all []Node
-	seen := make(map[string]struct{})
-	offset := 0
-
-	for offset < 9999 {
-		limit := min(pageSize, 9999-offset)
-		page, total, err := c.ListTrash(ctx, TrashListOptions{
+	page, err := paginateBounded9999(ctx, "/trash", 0, MaxPageLimit, func(ctx context.Context, offset, limit int) (*Page[Node], error) {
+		items, total, pErr := c.ListTrash(ctx, TrashListOptions{
 			Limit:  limit,
 			Offset: offset,
 		})
-		if err != nil {
-			if len(all) > 0 {
-				return all, &PartialResultError{
-					Endpoint: "/trash",
-					Message:  fmt.Sprintf("failed fetching trash page at offset %d after collecting %d items", offset, len(all)),
-					Cause:    err,
-				}
-			}
-			return nil, err
+		if pErr != nil {
+			return nil, pErr
 		}
-
-		for i := range page {
-			n := &page[i]
-			if n.ID != "" {
-				if _, exists := seen[n.ID]; exists {
-					continue
-				}
-				seen[n.ID] = struct{}{}
-			}
-			all = append(all, *n)
-		}
-
-		nextOffset := offset + len(page)
-		if len(page) == 0 || (total > 0 && nextOffset >= total) || len(page) < limit {
-			break
-		}
-
-		if offset+limit >= 9999 && total > 9999 {
-			return all, &PartialResultError{
-				Endpoint: "/trash",
-				Message:  fmt.Sprintf("trash pagination reached the 9999 offset limit (total reported: %d)", total),
-				Warnings: []string{"Amazon Drive /trash API enforces offset + limit <= 9999"},
-			}
-		}
-
-		offset += limit
+		return buildSinglePage(items, total, offset, limit, nil), nil
+	})
+	if page != nil {
+		return page.Items, err
 	}
-
-	return all, nil
+	return nil, err
 }
 
 func (c *Client) MoveToTrash(ctx context.Context, nodeIDs []string) error {
@@ -157,7 +102,7 @@ func (c *Client) MoveToTrash(ctx context.Context, nodeIDs []string) error {
 			ResourceVersion:    "V2",
 			ContentType:        "JSON",
 		}
-		if err := c.doMutateJSON(ctx, http.MethodPatch, "/trash", nil, payload, nil); err != nil {
+		if err := c.doMutateJSON(ctx, http.MethodPatch, "/trash", payload, nil); err != nil {
 			return err
 		}
 	}
@@ -181,7 +126,7 @@ func (c *Client) RestoreFromTrash(ctx context.Context, nodeIDs []string) error {
 			ResourceVersion:    "V2",
 			ContentType:        "JSON",
 		}
-		if err := c.doMutateJSON(ctx, http.MethodPatch, "/trash", nil, payload, nil); err != nil {
+		if err := c.doMutateJSON(ctx, http.MethodPatch, "/trash", payload, nil); err != nil {
 			return err
 		}
 	}

@@ -1137,7 +1137,7 @@ func TestMutateJSON_DoesNotBlindlyReplayOnNetworkOr5xxFailure(t *testing.T) {
 	})
 
 	client := newTestUSClient(t, rt, 3)
-	err := client.DoMutateJSON(context.Background(), http.MethodPost, "/nodes", nil, map[string]any{"name": "test"}, nil)
+	_, err := client.CreateAlbum(context.Background(), "test")
 	if err == nil {
 		t.Fatal("expected error from 502 POST, got nil")
 	}

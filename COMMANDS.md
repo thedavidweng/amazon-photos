@@ -153,7 +153,7 @@ aphotos ls --parent FOLDER_NODE_ID --all
 
 ### `aphotos aggregations`
 
-Query server media aggregations (`GET /search` or `GET /search/aggregation`). Note that querying face clusters uses `--category allPeople` (passing `people` is normalized by the SDK to `allPeople` due to upstream API requirements).
+Query server media aggregations (`GET /search` or `GET /search/aggregation`). Note that querying face clusters uses `--category allPeople` (while `people` is also accepted as a distinct server category).
 
 | Flag | Default | Description |
 |---|---|---|

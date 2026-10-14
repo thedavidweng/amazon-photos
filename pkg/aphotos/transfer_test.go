@@ -347,6 +347,46 @@ func TestUpload_ConflictPolicies(t *testing.T) {
 		}
 	})
 
+	t.Run("ConflictSkip fails when remote node has same name but different MD5", func(t *testing.T) {
+		client := newTestTransferClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			if req.Method == http.MethodPost {
+				_, _ = io.Copy(io.Discard, req.Body)
+				return &http.Response{
+					StatusCode: http.StatusConflict,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"message":"NODE_EXISTS","info":{"nodeId":"DIFFERENT_NODE_77"}}`)),
+				}, nil
+			}
+			if req.Method == http.MethodGet && req.URL.Path == "/drive/v1/nodes" {
+				body := `{"count":1,"data":[{"id":"DIFFERENT_NODE_77","name":"dup.jpg","kind":"FILE","status":"AVAILABLE","contentProperties":{"md5":"00000000000000000000000000000000","size":999}}]}`
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(body)),
+				}, nil
+			}
+			t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}))
+
+		res, err := client.Upload(context.Background(), aphotos.UploadRequest{
+			Name:           "dup.jpg",
+			ParentNodeID:   "ROOT1",
+			Body:           strings.NewReader("local-content-with-different-md5"),
+			ConflictPolicy: aphotos.ConflictSkip,
+		})
+		var conflictErr *aphotos.ConflictError
+		if !errors.As(err, &conflictErr) {
+			t.Fatalf("expected *ConflictError when remote MD5 differs, got %T: %v", err, err)
+		}
+		if conflictErr.ConflictingNodeID != "DIFFERENT_NODE_77" {
+			t.Errorf("ConflictingNodeID = %q, want DIFFERENT_NODE_77", conflictErr.ConflictingNodeID)
+		}
+		if res == nil || res.Status != aphotos.TransferFailed {
+			t.Fatalf("expected TransferFailed, got %+v", res)
+		}
+	})
+
 	t.Run("ConflictRename replays ReadSeeker once with disambiguated filename", func(t *testing.T) {
 		payload := "rename-me-bytes"
 		var names []string

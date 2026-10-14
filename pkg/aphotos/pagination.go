@@ -46,6 +46,26 @@ func normalizeOffsetAndLimit(offset, limit int) (normOffset, normLimit int, err 
 	return offset, limit, nil
 }
 
+func normalizeBoundedOffsetAndLimit(endpoint string, offset, limit int) (normOffset, normLimit int, err error) {
+	if limit > MaxPageLimit {
+		limit = MaxPageLimit
+	}
+	normOffset, normLimit, err = normalizeOffsetAndLimit(offset, limit)
+	if err != nil {
+		return 0, 0, err
+	}
+	if normOffset >= MaxNodeOffsetWindow {
+		return 0, 0, &InvalidFilterError{
+			Endpoint: endpoint,
+			Message:  fmt.Sprintf("offset %d exceeds maximum node offset window %d", normOffset, MaxNodeOffsetWindow),
+		}
+	}
+	if normOffset+normLimit > MaxNodeOffsetWindow {
+		normLimit = MaxNodeOffsetWindow - normOffset
+	}
+	return normOffset, normLimit, nil
+}
+
 func buildSinglePage(items []Node, totalCount, offset, limit int, aggs map[string][]AggregationEntry) *Page[Node] {
 	if items == nil {
 		items = []Node{}

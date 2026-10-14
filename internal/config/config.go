@@ -74,7 +74,7 @@ func Save(path string, cfg *Config) error {
 			Cause:   err,
 		}
 	}
-	_ = os.Chmod(dir, 0o700)
+	_ = enforceConfigDirPermissions(dir)
 
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -128,6 +128,7 @@ func Save(path string, cfg *Config) error {
 			Cause:   err,
 		}
 	}
+	_ = enforceConfigFilePermissions(path)
 	return nil
 }
 

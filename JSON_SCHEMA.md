@@ -18,7 +18,7 @@ When `--json` is enabled:
   "ok": true,
   "data": {
     "items": [],
-    "count": 0,
+    "totalCount": 0,
     "offset": 0,
     "limit": 50,
     "hasMore": false,

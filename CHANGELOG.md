@@ -16,11 +16,11 @@ Initial release of the `amazon-photos` Go SDK (`pkg/aphotos`) and `aphotos` CLI 
 - Canonical cookie normalization accepting underscore (`session_id`, `ubid_main`, `at_main`, `ubid_acb*`, `at_acb*`) and hyphen input names while emitting only canonical hyphenated wire cookies alongside `x-amzn-sessionid`.
 - Bounded concurrency semaphores (metadata default 4, upload default 2) and read-only retry engine honoring `Retry-After` (delta-seconds and HTTP-date) with exponential backoff and jitter.
 - Central `Redact` sanitizer scrubbing cookie values, `x-amzn-sessionid`, tokens, and pre-signed `contentRedirection` URLs from all error messages and logs.
-- Account root (`GetRoot`), storage usage (`GetUsage`), media search (`Search`, `SearchAll`), generic node queries (`QueryNodes`, `QueryAllNodes`), folder children (`ListChildren`, `ListAllChildren`), and aggregations (`GetAggregations`, normalizing `people` -> `allPeople`).
+- Account root (`GetRoot`), storage usage (`GetUsage`), media search (`Search`, `SearchAll`), generic node queries (`QueryNodes`, `QueryAllNodes`), folder children (`ListChildren`, `ListAllChildren`), and aggregations (`GetAggregations` across `all`, `allPeople`, `clusterId`, `familyMembers`, `favorite`, `location`, `people`, `things`, `time`, `type`).
 - Safe filter DSL builder (`FilterBuilder`) alongside explicit raw server filter passthrough (`SearchOptions.Filters`).
 - Deduplicating pagination advancing at `offset + limit` (fixing legacy page-0 duplication) and honoring the `/nodes` and `/trash` `offset + limit <= 9999` server constraint.
 - Streaming `cdproxy/nodes` upload (`Upload`, `UploadFile`, `UploadBatch`) distinguishing `confirmed` (HTTP 200/201 with verified node ID), `skipped` (verified conflict match), `unconfirmed`, and `failed` transfers, with `--on-conflict skip|fail|rename` policies.
-- Atomic streaming download via `/nodes/{id}/contentRedirection` (`Download`, `DownloadToPath`, `DownloadBatch`) with size and MD5 verification and cross-platform filename sanitization.
+- Atomic streaming download via `/nodes/{id}/contentRedirection` (`Download`, `DownloadBatch`) with size and MD5 verification and cross-platform download filename sanitization.
 - Album (`CreateAlbum`, `ListAlbums`, `AddAlbumMembers`, `RemoveAlbumMembers`, `RenameNode`), folder (`CreateFolder`, `ListFolders`), trash (`ListTrash`, `ListAllTrash`, `MoveToTrash`, `RestoreFromTrash` chunked at 50 IDs), and node settings (`SetFavorite`, `SetHidden` via `PATCH /nodes/{id}`).
 
 #### CLI (`cmd/aphotos`)

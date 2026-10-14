@@ -101,11 +101,12 @@ func runSearchCommand(ctx context.Context, r *output.Renderer, meta output.Runti
 		return r.FailError(meta, err)
 	}
 
-	hasTypedFilter := fixedType != "" || strings.TrimSpace(sf.mediaType) != "" || sf.year != 0 || sf.month != 0 || sf.day != 0 ||
+	hasTypedFilter := fixedType != "" ||
+		(strings.TrimSpace(sf.mediaType) != "" && strings.ToLower(strings.TrimSpace(sf.mediaType)) != "all") ||
+		sf.year != 0 || sf.month != 0 || sf.day != 0 ||
 		strings.TrimSpace(sf.name) != "" || len(sf.people) > 0 || len(sf.locations) > 0 || len(sf.things) > 0
 
-	if hasTypedFilter && (strings.TrimSpace(sf.filter) == "" || fixedType != "" || (strings.TrimSpace(sf.mediaType) != "" && strings.ToLower(strings.TrimSpace(sf.mediaType)) != "all") ||
-		sf.year != 0 || sf.month != 0 || sf.day != 0 || strings.TrimSpace(sf.name) != "" || len(sf.people) > 0 || len(sf.locations) > 0 || len(sf.things) > 0) {
+	if hasTypedFilter || strings.TrimSpace(sf.filter) == "" {
 		fb = aphotos.NewFilter().MediaType(mt)
 		if sf.year != 0 {
 			fb.Year(sf.year)
@@ -301,7 +302,7 @@ func parseSortFlag(raw string) (aphotos.SortOrder, error) {
 	default:
 		return "", &aphotos.InvalidFilterError{
 			Filter:  raw,
-			Message: fmt.Sprintf("unsupported --sort %q (expected created-desc, created-asc, content-desc, content-asc, name-asc, or name-desc)", raw),
+			Message: fmt.Sprintf("unsupported --sort %q (expected created-desc, created-asc, content-desc, content-asc, modified-desc, modified-asc, name-asc, or name-desc)", raw),
 		}
 	}
 }
