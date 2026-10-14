@@ -11,7 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/thedavidweng/amazon-photos/internal/model"
+	"gopkg.in/yaml.v3"
 )
 
 type roundTripFunc func(req *http.Request) (*http.Response, error)
@@ -678,6 +681,195 @@ func TestUploadConflictPoliciesSkipAndRenameE2E(t *testing.T) {
 		}
 		if len(uploadedNames) < 2 || uploadedNames[0] != "dup.jpg" || uploadedNames[1] != "dup (1).jpg" {
 			t.Errorf("unexpected uploaded names: %v", uploadedNames)
+		}
+	})
+}
+
+func TestDocumentationAndReleaseContractsSync(t *testing.T) {
+	repoRoot := filepath.Join("..", "..")
+
+	readRepoFile := func(t *testing.T, rel string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(repoRoot, rel))
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", rel, err)
+		}
+		return string(data)
+	}
+
+	t.Run("COMMANDS.md documents every command and flag and contentDate vs createdDate", func(t *testing.T) {
+		commandsDoc := readRepoFile(t, "COMMANDS.md")
+
+		if !strings.Contains(commandsDoc, "contentDate") || !strings.Contains(commandsDoc, "createdDate") {
+			t.Errorf("COMMANDS.md must document contentDate (capture date) vs createdDate (upload date)")
+		}
+
+		root := NewRootCommand(RootOptions{})
+		var walk func(cmd *cobra.Command, prefix string)
+		walk = func(cmd *cobra.Command, prefix string) {
+			fullPath := strings.TrimSpace(prefix + " " + cmd.Name())
+			if cmd != root {
+				if !strings.Contains(commandsDoc, fullPath) {
+					t.Errorf("COMMANDS.md missing command %q", fullPath)
+				}
+			}
+			cmd.NonInheritedFlags().VisitAll(func(f *pflag.Flag) {
+				if f.Hidden || f.Name == "help" || f.Name == "version" {
+					return
+				}
+				flagToken := "--" + f.Name
+				if !strings.Contains(commandsDoc, flagToken) {
+					t.Errorf("COMMANDS.md missing flag %q for command %q", flagToken, fullPath)
+				}
+			})
+			cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+				if f.Hidden || f.Name == "help" || f.Name == "version" {
+					return
+				}
+				flagToken := "--" + f.Name
+				if !strings.Contains(commandsDoc, flagToken) {
+					t.Errorf("COMMANDS.md missing persistent flag %q", flagToken)
+				}
+			})
+			for _, sub := range cmd.Commands() {
+				if sub.Hidden || sub.Name() == "help" {
+					continue
+				}
+				walk(sub, fullPath)
+			}
+		}
+		walk(root, "")
+	})
+
+	t.Run("JSON_SCHEMA.md documents envelope fields, error codes, categories, and exit codes", func(t *testing.T) {
+		schemaDoc := readRepoFile(t, "JSON_SCHEMA.md")
+
+		for _, field := range []string{`"ok"`, `"data"`, `"error"`, `"meta"`, `"schema_version"`, `"duration_ms"`, `"request_id"`} {
+			if !strings.Contains(schemaDoc, field) {
+				t.Errorf("JSON_SCHEMA.md missing envelope field %s", field)
+			}
+		}
+
+		allCodes := []string{
+			model.ErrValidationFailed,
+			model.ErrInvalidFilter,
+			model.ErrAuthRequired,
+			model.ErrAuthFailed,
+			model.ErrPermissionDenied,
+			model.ErrAPIError,
+			model.ErrRemoteProtocolError,
+			model.ErrResourceNotFound,
+			model.ErrConflict,
+			model.ErrNetworkError,
+			model.ErrRateLimited,
+			model.ErrPartialSuccess,
+			model.ErrConfirmationRequired,
+			model.ErrReadOnlyViolation,
+			model.ErrFilesystemError,
+			model.ErrConfigError,
+			model.ErrInterrupted,
+		}
+		for _, code := range allCodes {
+			if !strings.Contains(schemaDoc, code) {
+				t.Errorf("JSON_SCHEMA.md missing error code %q", code)
+			}
+			cat := model.CategoryForCode(code)
+			if !strings.Contains(schemaDoc, cat) {
+				t.Errorf("JSON_SCHEMA.md missing category %q for code %q", cat, code)
+			}
+		}
+		for _, exitStr := range []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "130"} {
+			if !strings.Contains(schemaDoc, exitStr) {
+				t.Errorf("JSON_SCHEMA.md missing exit code %s", exitStr)
+			}
+		}
+	})
+
+	t.Run("README.md contains disclaimer, regions, SDK/CLI usage, exit codes, credits, and MIT license", func(t *testing.T) {
+		readme := readRepoFile(t, "README.md")
+
+		requiredSnippets := []string{
+			"Unofficial client; not affiliated with, endorsed by, or sponsored by Amazon.com, Inc.",
+			"verified",
+			"experimental",
+			"content-na.drive.amazonaws.com",
+			"content-eu.drive.amazonaws.com",
+			"content-jp.drive.amazonaws.com",
+			"go get github.com/thedavidweng/amazon-photos/pkg/aphotos",
+			"auth import",
+			"doctor",
+			"usage",
+			"search",
+			"upload",
+			"download",
+			"albums",
+			"trash",
+			"130",
+			"trevorhobenshield/amazon_photos",
+			"kpfitzgerald/amazon-photos-mcp",
+			"vanessa/immich-amazon-sync",
+			"MIT",
+		}
+		for _, snippet := range requiredSnippets {
+			if !strings.Contains(readme, snippet) {
+				t.Errorf("README.md missing required content %q", snippet)
+			}
+		}
+	})
+
+	t.Run("governance and release files exist and are valid YAML", func(t *testing.T) {
+		for _, docFile := range []string{"CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "CONTEXT.md", "GLOSSARY.md"} {
+			content := readRepoFile(t, docFile)
+			if len(strings.TrimSpace(content)) == 0 {
+				t.Errorf("%s is empty", docFile)
+			}
+		}
+
+		goreleaserRaw := readRepoFile(t, ".goreleaser.yaml")
+		var gr map[string]any
+		if err := yaml.Unmarshal([]byte(goreleaserRaw), &gr); err != nil {
+			t.Fatalf(".goreleaser.yaml invalid YAML: %v", err)
+		}
+		for _, token := range []string{
+			"./cmd/aphotos",
+			"aphotos",
+			"github.com/thedavidweng/amazon-photos/internal/cli.Version",
+			"github.com/thedavidweng/amazon-photos/internal/cli.Commit",
+			"github.com/thedavidweng/amazon-photos/internal/cli.Date",
+			"linux",
+			"darwin",
+			"windows",
+			"amd64",
+			"arm64",
+			"checksums.txt",
+			"sha256",
+			"homebrew-tap",
+		} {
+			if !strings.Contains(goreleaserRaw, token) {
+				t.Errorf(".goreleaser.yaml missing %q", token)
+			}
+		}
+
+		ciRaw := readRepoFile(t, ".github/workflows/ci.yml")
+		var ciMap map[string]any
+		if err := yaml.Unmarshal([]byte(ciRaw), &ciMap); err != nil {
+			t.Fatalf(".github/workflows/ci.yml invalid YAML: %v", err)
+		}
+		for _, token := range []string{"mise run check", "ubuntu-latest", "macos-latest", "windows-latest", "go test ./...", "go build ./cmd/aphotos"} {
+			if !strings.Contains(ciRaw, token) {
+				t.Errorf(".github/workflows/ci.yml missing %q", token)
+			}
+		}
+
+		relRaw := readRepoFile(t, ".github/workflows/release.yml")
+		var relMap map[string]any
+		if err := yaml.Unmarshal([]byte(relRaw), &relMap); err != nil {
+			t.Fatalf(".github/workflows/release.yml invalid YAML: %v", err)
+		}
+		for _, token := range []string{"v*", "goreleaser"} {
+			if !strings.Contains(relRaw, token) {
+				t.Errorf(".github/workflows/release.yml missing %q", token)
+			}
 		}
 	})
 }
