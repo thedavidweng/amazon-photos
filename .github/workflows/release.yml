@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v0.1.0)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag_name || github.ref }}
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@v0.24.2
+
+      - name: Run pre-release tests
+        run: go test ./... -race
+
+      - name: Verify Homebrew tap token
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error title=Missing HOMEBREW_TAP_GITHUB_TOKEN::Create a GitHub token that can write contents to thedavidweng/homebrew-tap before running a release."
+            exit 1
+          fi
+          can_push="$(gh api repos/thedavidweng/homebrew-tap --jq '.permissions.push' 2>/dev/null || echo 'false')"
+          if [ "$can_push" != "true" ]; then
+            echo "::error title=Invalid HOMEBREW_TAP_GITHUB_TOKEN::The token must have write access to thedavidweng/homebrew-tap."
+            exit 1
+          fi
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

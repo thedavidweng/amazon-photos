@@ -1,0 +1,83 @@
+version: 2
+
+builds:
+  - main: ./cmd/aphotos
+    binary: aphotos
+    ldflags:
+      - -s -w
+      - -X github.com/thedavidweng/amazon-photos/internal/cli.Version={{.Version}}
+      - -X github.com/thedavidweng/amazon-photos/internal/cli.Commit={{.ShortCommit}}
+      - -X github.com/thedavidweng/amazon-photos/internal/cli.Date={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "aphotos_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  disable: true
+
+release:
+  mode: append
+  github:
+    owner: thedavidweng
+    name: amazon-photos
+
+signs:
+  - artifacts: checksum
+    cmd: cosign
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+
+sboms:
+  - artifacts: archive
+    documents:
+      - "${artifact}.sbom.json"
+
+nfpms:
+  - package_name: aphotos
+    vendor: thedavidweng
+    maintainer: thedavidweng <noreply@github.com>
+    homepage: https://github.com/thedavidweng/amazon-photos
+    description: "Unofficial Amazon Photos / Drive v1 CLI and Go SDK"
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+
+brews:
+  - name: aphotos
+    repository:
+      owner: thedavidweng
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/thedavidweng/amazon-photos"
+    description: "Unofficial Amazon Photos / Drive v1 CLI and Go SDK"
+    license: "MIT"
+    install: |
+      bin.install "aphotos"
+      generate_completions_from_executable(bin/"aphotos", "completion")
+    test: |
+      system "#{bin}/aphotos", "version"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
