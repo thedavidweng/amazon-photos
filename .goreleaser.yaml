@@ -66,6 +66,7 @@ nfpms:
 
 brews:
   - name: aphotos
+    skip_upload: '{{ eq (index .Env "SKIP_HOMEBREW_TAP") "true" }}'
     repository:
       owner: thedavidweng
       name: homebrew-tap

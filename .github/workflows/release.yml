@@ -48,19 +48,21 @@ jobs:
         run: go test -race ./...
 
       - name: Verify Homebrew tap token
+        id: tap
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
         run: |
           if [ -z "$GH_TOKEN" ]; then
-            echo "::error title=Missing HOMEBREW_TAP_GITHUB_TOKEN::Create a GitHub token that can write contents to thedavidweng/homebrew-tap before running a release."
-            exit 1
+            echo "::warning title=Missing HOMEBREW_TAP_GITHUB_TOKEN::Skipping push to thedavidweng/homebrew-tap; formula will still be generated in dist/homebrew/aphotos.rb and attached to the GitHub Release."
+            echo "SKIP_HOMEBREW_TAP=true" >> "$GITHUB_ENV"
+            exit 0
           fi
           can_push="$(gh api repos/thedavidweng/homebrew-tap --jq '.permissions.push' 2>/dev/null || echo 'false')"
           if [ "$can_push" != "true" ]; then
             echo "::error title=Invalid HOMEBREW_TAP_GITHUB_TOKEN::The token must have write access to thedavidweng/homebrew-tap."
             exit 1
           fi
-
+          echo "SKIP_HOMEBREW_TAP=false" >> "$GITHUB_ENV"
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
@@ -70,3 +72,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+
+      - name: Attach generated Homebrew formula to GitHub Release when tap token is absent
+        if: env.SKIP_HOMEBREW_TAP == 'true' && hashFiles('dist/homebrew/aphotos.rb') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag_name || github.ref_name }}
+        run: |
+          gh release upload "$TAG" dist/homebrew/aphotos.rb --clobber
