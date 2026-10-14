@@ -9,102 +9,18 @@
 
 > **Disclaimer**: Unofficial client; not affiliated with, endorsed by, or sponsored by Amazon.com, Inc.
 
-`amazon-photos` provides a pure Go SDK (`github.com/thedavidweng/amazon-photos/pkg/aphotos`) and single-binary CLI (`aphotos`) for Amazon Photos / Amazon Drive v1.
+`amazon-photos` provides a pure Go SDK (`github.com/thedavidweng/amazon-photos/pkg/aphotos`) and single-binary CLI (`aphotos`) for Amazon Photos / Amazon Drive v1, with structured JSON output, explicit regional routing (`content-na.drive.amazonaws.com`, `content-eu.drive.amazonaws.com`, `content-jp.drive.amazonaws.com`), and verified media transfers.
 
----
+## Highlights
 
-## Important Notices: Private API Instability & Credential Security
+- **Pure Go SDK (`pkg/aphotos`)**: Zero third-party dependencies, zero network/disk I/O on `NewClient`, injectable `http.RoundTripper`, and bounded concurrency semaphores.
+- **Agent-First CLI (`aphotos`)**: Versioned `--json` envelope (`schema_version: "v1"`), thread-safe `stderr` progress, central credential redaction (`aphotos.Redact`), and deterministic exit codes (`0`–`8`, `130`).
+- **Verified Transfers**: Streaming uploads require a verified remote node ID or matching MD5 before reporting `confirmed` or `skipped`; downloads verify remote byte size and MD5 and never overwrite existing local files.
+- **Explicit Regional Routing**: Supports `us` (`verified`) and `ca`, `uk`, `jp`, and European TLDs (`experimental`) with fail-fast cookie region inference.
 
-- **Private API Instability**: Amazon discontinued the public Amazon Drive REST API in 2023. This project communicates with the undocumented Amazon Photos Web API (`/drive/v1` and regional `cdproxy/nodes` endpoints), which may change, throttle, or break at any time without notice.
-- **Verified Transfers Only**: Uploads via `cdproxy/nodes` are reported as `confirmed` only when the server returns HTTP `200`/`201` with a verifiable remote node ID. Ambiguous or interrupted transfers are marked `unconfirmed` and never blindly replayed as duplicate uploads. HTTP `409 Conflict` is never treated as unconditional success without verifying the existing remote node.
-- **Credential Security**: Authentication relies on browser session cookies (`session-id`, `ubid-*`, `at-*`).
-  - Never commit or paste raw cookie values into repositories, issues, logs, or shell history.
-  - `aphotos auth import` writes credentials to `~/.config/aphotos/config.yaml` with `0600` file permissions inside a `0700` directory.
-  - You can use `env:VAR_NAME` indirection inside `config.yaml` or set `APHOTOS_COOKIES_FILE`, `APHOTOS_SESSION_ID`, `APHOTOS_UBID`, `APHOTOS_AT`, and `APHOTOS_REGION` for stateless runs.
-  - All SDK errors, CLI `--verbose` stderr logs, and `--json` envelopes pass through `aphotos.Redact` so cookies, `x-amzn-sessionid`, tokens, and pre-signed `contentRedirection` URLs are never printed.
+## Quickstart
 
----
-
-## Regional Routing & Verification Status
-
-`amazon-photos` pairs each marketplace region with its exact `drive/v1` domain, `cdproxy` upload host, thumbnail host, and canonical browser wire cookies. When region is not explicitly passed, it is inferred only when cookie suffixes unambiguously identify a single region; ambiguous or unknown cookies fail fast and never silently fall back to `.com`.
-
-| Region | Drive API (`DriveURL`) | Upload Host (`UploadURL`) | Thumbnail Host (`ThumbnailURL`) | Canonical Wire Cookies | Status |
-|---|---|---|---|---|---|
-| **US** (`us` / `com`) | `https://www.amazon.com/drive/v1` | `https://content-na.drive.amazonaws.com/cdproxy/nodes` | `https://thumbnails-photos.amazon.com/v1/thumbnail` | `session-id`, `ubid-main`, `at-main` | `verified` |
-| **CA** (`ca`) | `https://www.amazon.ca/drive/v1` | `https://content-na.drive.amazonaws.com/cdproxy/nodes` | `https://thumbnails-photos.amazon.ca/v1/thumbnail` | `session-id`, `ubid-acbca`, `at-acbca` | `experimental` |
-| **UK** (`uk` / `co.uk`) | `https://www.amazon.co.uk/drive/v1` | `https://content-eu.drive.amazonaws.com/cdproxy/nodes` | `https://thumbnails-photos.amazon.co.uk/v1/thumbnail` | `session-id`, `ubid-acbuk`, `at-acbuk` | `experimental` |
-| **JP** (`jp` / `co.jp`) | `https://www.amazon.co.jp/drive/v1` | `https://content-jp.drive.amazonaws.com/cdproxy/nodes` | `https://thumbnails-photos.amazon.co.jp/v1/thumbnail` | `session-id`, `ubid-acbjp`, `at-acbjp` | `experimental` |
-| **EU** (`de`, `fr`, `it`, `es`, `nl`, `se`, `pl`, ...) | `https://www.amazon.{tld}/drive/v1` | `https://content-eu.drive.amazonaws.com/cdproxy/nodes` | `https://thumbnails-photos.amazon.{tld}/v1/thumbnail` | `session-id`, `ubid-acb{tld}`, `at-acb{tld}` | `experimental` |
-
-*Note*: Both underscore (`session_id`, `ubid_main`, `at_main`, `ubid_acb*`, `at_acb*`) and hyphen input keys are accepted and normalized to canonical hyphenated wire names.
-
----
-
-## Go SDK Quickstart
-
-Install the zero-dependency SDK package:
-
-```shell
-go get github.com/thedavidweng/amazon-photos/pkg/aphotos
-```
-
-`aphotos.NewClient` performs zero network or disk I/O on construction and accepts an optional custom `*http.Client` or `http.RoundTripper`:
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"log"
-	"os"
-
-	"github.com/thedavidweng/amazon-photos/pkg/aphotos"
-)
-
-func main() {
-	client, err := aphotos.NewClient(aphotos.Options{
-		Region: aphotos.RegionUS,
-		Cookies: map[string]string{
-			"session-id": os.Getenv("APHOTOS_SESSION_ID"),
-			"ubid-main":  os.Getenv("APHOTOS_UBID"),
-			"at-main":    os.Getenv("APHOTOS_AT"),
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer client.Close()
-
-	ctx := context.Background()
-
-	usage, err := client.GetUsage(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Printf("Photos: %d items (%d bytes)\n", usage.Photo.Total.Count, usage.Photo.Total.Bytes)
-
-	page, err := client.Search(ctx, aphotos.SearchOptions{
-		Filter: aphotos.NewFilter().MediaType(aphotos.MediaPhotos).Year(2025),
-		Limit:  50,
-		Sort:   aphotos.SortContentDateDesc,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, node := range page.Items {
-		fmt.Printf("%s  %s  capture=%v  upload=%v\n",
-			node.ID, node.Name, node.ContentProperties.ContentDate, node.CreatedDate)
-	}
-}
-```
-
----
-
-## `aphotos` CLI Quickstart
-
-### Installation
+### Install `aphotos` CLI
 
 **Homebrew (macOS / Linux):**
 
@@ -123,101 +39,72 @@ go install github.com/thedavidweng/amazon-photos/cmd/aphotos@latest
 
 Download prebuilt archives for `darwin`, `linux`, or `windows` (`amd64` / `arm64`) with `checksums.txt` from [GitHub Releases](https://github.com/thedavidweng/amazon-photos/releases).
 
-### Usage Examples
+### First CLI Commands
 
 ```shell
-# 1. Import browser cookies (Netscape cookies.txt, JSON array/map, or Cookie header)
 aphotos auth import ./cookies.json
-aphotos auth status
-
-# 2. Run graded diagnostics (config, region, root/usage, search probe)
 aphotos doctor
-aphotos doctor --write-probe --confirm
-
-# 3. Check account storage usage
-aphotos usage
 aphotos usage --json
-
-# 4. Search media (contentDate = capture date, createdDate = cloud upload date)
-aphotos search --year 2024 --month 8 --sort content-desc
-aphotos photos --things beach,sunset --limit 50 --json
-aphotos videos --all --json
-
-# 5. Upload files or directories with conflict verification
-aphotos upload ./IMG_1024.HEIC --on-conflict skip
-aphotos upload ./Vacation2026 --recursive --album ALBUM_NODE_ID --on-conflict skip --json
-
-# 6. Download original media with size and MD5 verification
-aphotos download NODE_ID_1 NODE_ID_2 --out ./downloads
-
-# 7. Manage albums and folders
-aphotos albums list
-aphotos albums create "Summer 2026" NODE_ID_1 NODE_ID_2
-aphotos albums add ALBUM_NODE_ID NODE_ID_3
-aphotos albums remove ALBUM_NODE_ID NODE_ID_2
-aphotos albums rename ALBUM_NODE_ID "Summer Trip 2026"
-aphotos folders list
-
-# 8. Inspect, trash, or restore nodes (no permanent purge in v1)
-aphotos trash list
-aphotos trash add NODE_ID_1 --confirm
-aphotos trash restore NODE_ID_1
+aphotos search --year 2025 --sort content-desc --json
+aphotos upload ./IMG_1024.HEIC --on-conflict skip --json
+aphotos download NODE_ID --out ./downloads --json
+aphotos albums list --json
+aphotos trash list --json
 ```
 
-See [COMMANDS.md](COMMANDS.md) for all commands and flags, and [JSON_SCHEMA.md](JSON_SCHEMA.md) for the `--json` output contract.
+### Install Go SDK
 
----
-
-## Machine Error Codes & Exit Codes
-
-Every CLI failure maps deterministically to a process exit code and machine-readable error code:
-
-| Exit Code | Error Code(s) | Category | Retryable | Description |
-|---|---|---|---|---|
-| `0` | — | — | — | Command succeeded (`"ok": true`) |
-| `1` | `VALIDATION_FAILED`, `INVALID_FILTER` | `validation` | `false` | Invalid flags, arguments, or server filter DSL (`400`) |
-| `2` | `AUTH_REQUIRED`, `AUTH_FAILED`, `PERMISSION_DENIED` | `auth` | `false` | Missing credentials, expired cookies (`401`), or forbidden (`403`) |
-| `3` | `API_ERROR`, `REMOTE_PROTOCOL_ERROR`, `RESOURCE_NOT_FOUND`, `CONFLICT` | `api` | `false` | Remote API error, missing node (`404`), conflict (`409`), or checksum mismatch |
-| `4` | `NETWORK_ERROR`, `RATE_LIMITED` | `network` | `true` | Transient network error, timeout, or HTTP `429` rate limit |
-| `5` | `PARTIAL_SUCCESS` | `api` | `false` | Batch transfer or multi-page query completed with partial results |
-| `6` | `CONFIRMATION_REQUIRED`, `READ_ONLY_VIOLATION` | `safety` | `false` | Missing `--confirm` on `trash add` or `doctor --write-probe` |
-| `7` | `FILESYSTEM_ERROR` | `filesystem` | `false` | Local file read/write/permission error |
-| `8` | `CONFIG_ERROR` | `config` | `false` | Missing/ambiguous region, missing cookie key, or malformed config |
-| `130` | `INTERRUPTED` | `interrupted` | `false` | Cancelled via `SIGINT` / `SIGTERM` |
-
----
+```shell
+go get github.com/thedavidweng/amazon-photos/pkg/aphotos
+```
 
 ## Documentation
 
-- [COMMANDS.md](COMMANDS.md) — Complete CLI command and flag reference
-- [JSON_SCHEMA.md](JSON_SCHEMA.md) — Normative `--json` envelope schema and error table
-- [CONTEXT.md](CONTEXT.md) & [GLOSSARY.md](GLOSSARY.md) — Domain model and terminology
-- [docs/adr/0001-sdk-architecture.md](docs/adr/0001-sdk-architecture.md) — SDK architecture, regional routing, and retry rules
-- [docs/adr/0002-cli-and-json-contract.md](docs/adr/0002-cli-and-json-contract.md) — CLI credential store and JSON contract
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Development setup and quality gates
-- [SECURITY.md](SECURITY.md) — Vulnerability reporting and credential protection design
+Organized following the [Diátaxis](https://diataxis.fr/) framework:
 
----
+### Tutorials (Learning-Oriented)
+
+- [First-Time CLI Setup, Authentication, Upload, and Verification](docs/tutorials/getting-started-cli.md)
+- [Build Your First Client with the Go SDK](docs/tutorials/first-sdk-client.md)
+
+### How-To Guides (Task-Oriented)
+
+- [Batch Upload and Download](docs/how-to/batch-transfers.md)
+- [Configure Amazon Regions](docs/how-to/configure-regions.md)
+- [Automate Workflows with AI Agents](docs/how-to/agent-automation.md)
+- [Troubleshoot Authentication and Transfers](docs/how-to/troubleshooting.md)
+
+### Reference (Information-Oriented)
+
+- [CLI Command Reference](docs/reference/cli-commands.md)
+- [Go SDK API Reference (`pkg/aphotos`)](docs/reference/sdk-api.md)
+- [JSON Schema and Exit Codes](docs/reference/json-schema.md)
+- [Search Filter DSL, Pagination, and Aggregations](docs/reference/search-filters-and-pagination.md)
+- [Regions and Verification Status](docs/reference/regions.md)
+- [Configuration File and Environment Variables](docs/reference/configuration.md)
+
+### Explanation (Understanding-Oriented)
+
+- [SDK and CLI Architecture](docs/explanation/architecture.md)
+- [Unofficial Amazon Photos API Constraints](docs/explanation/unofficial-api-constraints.md)
+- [Authentication and Credential Security Model](docs/explanation/security-model.md)
+- [Upload Confirmation, Retries, Idempotency, and Conflict Handling](docs/explanation/transfer-integrity-and-conflicts.md)
+
+### Project & Architecture Records
+
+- [ADR 0001: SDK Architecture](docs/adr/0001-sdk-architecture.md)
+- [ADR 0002: CLI and JSON Contract](docs/adr/0002-cli-and-json-contract.md)
+- [Domain Context](CONTEXT.md) & [Glossary](GLOSSARY.md)
+- [Contributing](CONTRIBUTING.md) & [Security Policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
 
 ## Credits & Acknowledgments
 
 Protocol research and edge-case behaviors are informed by prior open-source work in the Amazon Photos community:
 
-- [`trevorhobenshield/amazon_photos`](https://github.com/trevorhobenshield/amazon_photos) (MIT) by Trevor Hobenshield — foundational Python reverse-engineering of the Amazon Photos / Drive v1 endpoints and filter DSL, along with community PR contributors:
-  - PR [#18](https://github.com/trevorhobenshield/amazon_photos/pull/18) (`folder_Valid` / `os.makedirs` fix)
-  - PR [#19](https://github.com/trevorhobenshield/amazon_photos/pull/19) (`.co.uk` regional domain mapping)
-  - PR [#20](https://github.com/trevorhobenshield/amazon_photos/pull/20) (`at-acbjp` -> `co.jp` + `content-jp` upload host mapping)
-  - PR [#27](https://github.com/trevorhobenshield/amazon_photos/pull/27) & PR [#35](https://github.com/trevorhobenshield/amazon_photos/pull/35) (underscore vs. hyphen cookie name normalization)
-  - PR [#28](https://github.com/trevorhobenshield/amazon_photos/pull/28) (Windows filename sanitization on download)
-  - PR [#29](https://github.com/trevorhobenshield/amazon_photos/pull/29) (`account/usage` `lastCalculated` field handling)
-  - PR [#30](https://github.com/trevorhobenshield/amazon_photos/pull/30) (duplicate page-0 pagination offset fix)
-  - PR [#31](https://github.com/trevorhobenshield/amazon_photos/pull/31) (`trashed` empty-list return fix)
-  - PR [#33](https://github.com/trevorhobenshield/amazon_photos/pull/33) (empty search response guard)
-  - PR [#34](https://github.com/trevorhobenshield/amazon_photos/pull/34) (`favorite`/`unfavorite` `PATCH /nodes/{id}` method fix)
-- [`kpfitzgerald/amazon-photos-mcp`](https://github.com/kpfitzgerald/amazon-photos-mcp) — live US endpoint verification notes, `allPeople` aggregation category behavior, and cookie bridging insights.
-- [`vanessa/immich-amazon-sync`](https://github.com/vanessa/immich-amazon-sync) (MIT) — additional protocol observations on upload conflict and trash semantics.
-
----
+- [`trevorhobenshield/amazon_photos`](https://github.com/trevorhobenshield/amazon_photos) (MIT) by Trevor Hobenshield and community PR contributors (#18, #19, #20, #27, #28, #29, #30, #31, #33, #34, #35)
+- [`kpfitzgerald/amazon-photos-mcp`](https://github.com/kpfitzgerald/amazon-photos-mcp)
+- [`vanessa/immich-amazon-sync`](https://github.com/vanessa/immich-amazon-sync) (MIT)
 
 ## License
 

@@ -18,13 +18,14 @@ import (
 )
 
 type DownloadRequest struct {
-	NodeID       string
-	OwnerID      string
-	DestDir      string
-	FileName     string
-	ExpectedSize int64
-	ExpectedMD5  string
-	Progress     ProgressFunc
+	NodeID         string
+	OwnerID        string
+	DestDir        string
+	FileName       string
+	ExpectedSize   int64
+	ExpectedMD5    string
+	ConflictPolicy ConflictPolicy
+	Progress       ProgressFunc
 }
 
 func (c *Client) Download(ctx context.Context, req DownloadRequest) (*TransferResult, error) {
@@ -42,12 +43,26 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest) (*TransferRe
 		err := &ConfigError{Field: "dest_dir", Message: "download destination directory is required"}
 		return failedDownloadResult(nodeID, req.FileName, 0, "", err), err
 	}
+	policy, err := normalizeConflictPolicy(req.ConflictPolicy)
+	if err != nil {
+		return failedDownloadResult(nodeID, req.FileName, 0, "", err), err
+	}
+	req.ConflictPolicy = policy
 
 	cleanDestDir := filepath.Clean(destDir)
 	if err := os.MkdirAll(cleanDestDir, 0o755); err != nil {
 		return failedDownloadResult(nodeID, req.FileName, 0, "", err), err
 	}
 
+	if explicitName := sanitizeSingleFileName(req.FileName); explicitName != "" && policy != ConflictRename {
+		explicitPath, pathErr := joinWithinDir(cleanDestDir, explicitName)
+		if pathErr != nil {
+			return failedDownloadResult(nodeID, explicitName, 0, "", pathErr), pathErr
+		}
+		if info, statErr := os.Stat(explicitPath); statErr == nil {
+			return resolveExistingDownloadFile(nodeID, explicitName, explicitPath, info.Size(), policy)
+		}
+	}
 	ownerID := strings.TrimSpace(req.OwnerID)
 	if ownerID == "" {
 		root, err := c.GetRoot(ctx)
@@ -176,7 +191,12 @@ func (c *Client) downloadAttempt(
 	if err != nil {
 		return failedDownloadResult(nodeID, safeName, 0, "", err), false, err
 	}
-
+	if req.ConflictPolicy != ConflictRename {
+		if info, statErr := os.Stat(finalPath); statErr == nil {
+			res, existErr := resolveExistingDownloadFile(nodeID, safeName, finalPath, info.Size(), req.ConflictPolicy)
+			return res, false, existErr
+		}
+	}
 	totalBytes := req.ExpectedSize
 	var contentLen int64 = -1
 	if clStr := strings.TrimSpace(resp.Header.Get("Content-Length")); clStr != "" {
@@ -261,6 +281,7 @@ func (c *Client) downloadAttempt(
 		return failedDownloadResult(nodeID, safeName, written, computedMD5, sizeErr), false, sizeErr
 	}
 
+	md5Verified := false
 	if expectedMD5 := strings.TrimSpace(req.ExpectedMD5); expectedMD5 != "" {
 		if !strings.EqualFold(computedMD5, expectedMD5) {
 			cleanupTmp()
@@ -272,6 +293,7 @@ func (c *Client) downloadAttempt(
 			}
 			return failedDownloadResult(nodeID, safeName, written, computedMD5, md5Err), false, md5Err
 		}
+		md5Verified = true
 	}
 
 	if err := tmpFile.Close(); err != nil {
@@ -279,19 +301,136 @@ func (c *Client) downloadAttempt(
 		return failedDownloadResult(nodeID, safeName, written, computedMD5, err), false, err
 	}
 
-	if err := os.Rename(tmpPath, finalPath); err != nil {
+	resolvedName, resolvedPath, skipped, err := finalizeDownloadTempFile(tmpPath, cleanDestDir, safeName, req.ConflictPolicy)
+	if err != nil {
 		_ = os.Remove(tmpPath)
 		return failedDownloadResult(nodeID, safeName, written, computedMD5, err), false, err
 	}
+	if skipped {
+		return &TransferResult{
+			Status:           TransferSkipped,
+			NodeID:           nodeID,
+			Name:             resolvedName,
+			LocalPath:        resolvedPath,
+			Bytes:            written,
+			MD5:              computedMD5,
+			MD5Verified:      md5Verified,
+			ConflictResolved: true,
+		}, false, nil
+	}
 
+	var warning string
+	if !md5Verified {
+		warning = fmt.Sprintf("node %s downloaded without remote MD5 verification (expected MD5 was not available)", nodeID)
+	}
 	return &TransferResult{
-		Status:    TransferConfirmed,
-		NodeID:    nodeID,
-		Name:      safeName,
-		LocalPath: finalPath,
-		Bytes:     written,
-		MD5:       computedMD5,
+		Status:           TransferConfirmed,
+		NodeID:           nodeID,
+		Name:             resolvedName,
+		LocalPath:        resolvedPath,
+		Bytes:            written,
+		MD5:              computedMD5,
+		MD5Verified:      md5Verified,
+		ConflictResolved: resolvedName != safeName,
+		Warning:          warning,
 	}, false, nil
+}
+
+func resolveExistingDownloadFile(nodeID, name, path string, size int64, policy ConflictPolicy) (*TransferResult, error) {
+	if policy == ConflictSkip {
+		return &TransferResult{
+			Status:           TransferSkipped,
+			NodeID:           nodeID,
+			Name:             name,
+			LocalPath:        path,
+			Bytes:            size,
+			ConflictResolved: true,
+		}, nil
+	}
+	conflictErr := &ConflictError{
+		Endpoint:          "/nodes/contentRedirection",
+		ConflictingNodeID: nodeID,
+		Message:           fmt.Sprintf("local file %q already exists at %s", name, path),
+	}
+	res := failedDownloadResult(nodeID, name, 0, "", conflictErr)
+	res.LocalPath = path
+	return res, conflictErr
+}
+
+func finalizeDownloadTempFile(tmpPath, cleanDestDir, safeName string, policy ConflictPolicy) (resolvedName, resolvedPath string, skipped bool, err error) {
+	maxAttempts := 1
+	if policy == ConflictRename {
+		maxAttempts = 10000
+	}
+	for attempt := range maxAttempts {
+		candName := safeName
+		if attempt > 0 {
+			candName = disambiguateFileName(safeName, attempt)
+		}
+		candPath, err := joinWithinDir(cleanDestDir, candName)
+		if err != nil {
+			return safeName, "", false, err
+		}
+		err = atomicClaimAndMoveFile(tmpPath, candPath)
+		if err == nil {
+			return candName, candPath, false, nil
+		}
+		if errors.Is(err, os.ErrExist) {
+			switch policy {
+			case ConflictSkip:
+				_ = os.Remove(tmpPath)
+				return candName, candPath, true, nil
+			case ConflictRename:
+				continue
+			default:
+				return candName, candPath, false, &ConflictError{
+					Endpoint: "/nodes/contentRedirection",
+					Message:  fmt.Sprintf("local file %q already exists at %s", candName, candPath),
+				}
+			}
+		}
+		return candName, candPath, false, err
+	}
+	return safeName, "", false, &ConflictError{
+		Endpoint: "/nodes/contentRedirection",
+		Message:  fmt.Sprintf("exhausted conflict rename attempts for %q", safeName),
+	}
+}
+
+func atomicClaimAndMoveFile(tmpPath, destPath string) error {
+	if err := os.Link(tmpPath, destPath); err == nil {
+		_ = os.Remove(tmpPath)
+		return nil
+	} else if errors.Is(err, os.ErrExist) {
+		return os.ErrExist
+	}
+
+	dst, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return os.ErrExist
+		}
+		return err
+	}
+	src, err := os.Open(tmpPath)
+	if err != nil {
+		_ = dst.Close()
+		_ = os.Remove(destPath)
+		return err
+	}
+	_, copyErr := io.Copy(dst, src)
+	_ = src.Close()
+	closeErr := dst.Close()
+	if copyErr != nil {
+		_ = os.Remove(destPath)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(destPath)
+		return closeErr
+	}
+	_ = os.Remove(tmpPath)
+	return nil
 }
 
 func resolveDownloadFileName(explicitName, contentDisposition, nodeID string) string {

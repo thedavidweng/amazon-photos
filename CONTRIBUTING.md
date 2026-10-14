@@ -14,16 +14,19 @@ Requires Go 1.26 or later.
 ## Development Workflow
 
 ```bash
-# Run all quality gates: fmt, build, test, lint, conventions
+# Run all read-only quality gates: fmt-check, mod-tidy-check, vet, build, test, test-race, lint, conventions
 mise run check
 
 # Individual tasks
 mise run fmt
+mise run fmt-check
+mise run mod-tidy-check
+mise run vet
 mise run build
 mise run test
+mise run test-race
 mise run lint
 mise run conventions
-```
 
 ## Project Structure
 
@@ -36,6 +39,10 @@ internal/
   model/              JSON envelope, error codes, and exit code mapping
   output/             Human/JSON renderer with strict redaction
 docs/
+  tutorials/          Learning-oriented step-by-step tutorials
+  how-to/             Task-oriented operational guides
+  reference/          CLI commands, SDK API, JSON schema, regions, config
+  explanation/        Architecture, unofficial API limits, security, transfer integrity
   adr/                Architecture Decision Records
   agents/             Agent conventions and triage labels
 ```
@@ -44,7 +51,7 @@ docs/
 
 1. **SDK Purity**: `pkg/aphotos` must have zero CLI/GUI framework dependencies, perform zero network or filesystem I/O in `NewClient`, and route all HTTP requests through an injectable `http.Client` / `http.RoundTripper`.
 2. **Test-First & Offline Determinism**: Write contract tests against injected `http.RoundTripper` / `httptest.Server` seams before implementation. Never require live Amazon credentials in CI or commit real session cookies.
-3. **Code and Docs Move Together**: Any change to CLI commands, flags, JSON envelope fields, or exit codes must update `COMMANDS.md` and `JSON_SCHEMA.md` in the same change.
+3. **Code and Docs Move Together**: Any change to CLI commands, flags, JSON envelope fields, or exit codes must update `docs/reference/cli-commands.md` and `docs/reference/json-schema.md` in the same change.
 4. **Comment Budget**: Keep code self-explanatory. CI enforces a comment budget of `<= 5%` of non-test Go lines (`mise run conventions`).
 5. **Credential Redaction**: Never log or print raw cookie values (`session-id`, `ubid-*`, `at-*`), `x-amzn-sessionid`, or pre-signed `contentRedirection` URLs.
 

@@ -1,10 +1,11 @@
-# JSON Output Contract
+# JSON Schema and Exit Codes
 
 Every `aphotos` command supports `--json` (or `APHOTOS_JSON=1`) to emit a single versioned JSON envelope to `stdout`.
 
 When `--json` is enabled:
+
 - `stdout` contains **only** the JSON envelope (`Envelope`).
-- Progress updates and `--verbose` diagnostics are written exclusively to `stderr`.
+- Progress updates and `--verbose` diagnostics are written exclusively to `stderr` (and suppressed when `--quiet` is set).
 - All strings in `error.message`, `error.details`, and `meta.warnings` are scrubbed by `aphotos.Redact` so cookies (`session-id`, `ubid-*`, `at-*`), `x-amzn-sessionid`, bearer tokens, and pre-signed `contentRedirection` query strings are never leaked.
 
 ---
@@ -57,7 +58,7 @@ When `--json` is enabled:
 
 ### Partial Success Response (Exit Code `5`)
 
-When a batch or multi-page operation partially succeeds (e.g., `upload --continue-on-error`, `download --continue-on-error`, or pagination interrupted after initial pages), the envelope includes both `data` and `error` with `code: "PARTIAL_SUCCESS"`:
+When a batch or multi-page operation partially succeeds (e.g., `upload --continue-on-error`, `download --continue-on-error`, unconfirmed conflict verification, or pagination interrupted after initial pages), the envelope includes both `data` and `error` with `code: "PARTIAL_SUCCESS"`:
 
 ```json
 {
@@ -73,7 +74,7 @@ When a batch or multi-page operation partially succeeds (e.g., `upload --continu
   },
   "error": {
     "code": "PARTIAL_SUCCESS",
-    "message": "upload conflict at /cdproxy/nodes: Node already exists",
+    "message": "aphotos partial result on /cdproxy/nodes: 1 of 2 transfers failed or were unconfirmed",
     "category": "api",
     "details": {
       "cause_code": "CONFLICT"
@@ -96,7 +97,7 @@ When a batch or multi-page operation partially succeeds (e.g., `upload --continu
 
 | Field | Type | Presence | Description |
 |---|---|---|---|
-| `"ok"` | ` boolean` | Always | `true` when the command succeeded completely; `false` on error or partial failure |
+| `"ok"` | `boolean` | Always | `true` when the command succeeded completely; `false` on error or partial failure |
 | `"data"` | `object \| array` | On success or partial failure | Command-specific payload |
 | `"error"` | `ErrorBody` | When `ok == false` | Structured machine-readable error object |
 | `"meta"` | `Meta` | Always | Execution metadata |
@@ -122,7 +123,7 @@ When a batch or multi-page operation partially succeeds (e.g., `upload --continu
 | `"duration_ms"` | `int64` | Always | Wall-clock execution duration in milliseconds |
 | `"schema_version"` | `string` | Always | Envelope schema version (`"v1"`) |
 | `"request_id"` | `string` | Optional (`omitempty`) | Per-invocation correlation ID (`req-<16-hex>`) |
-| `"warnings"` | `string[]` | Optional (`omitempty`) | Redacted non-fatal warning strings (e.g. pagination `offset + limit <= 9999` cap notices) |
+| `"warnings"` | `string[]` | Optional (`omitempty`) | Redacted non-fatal warning strings (e.g. pagination `offset + limit <= 9999` cap notices or missing remote MD5 warnings) |
 
 ---
 
@@ -139,10 +140,10 @@ When a batch or multi-page operation partially succeeds (e.g., `upload --continu
 | `API_ERROR` | `api` | `false` | `3` | Unclassified remote API failure |
 | `REMOTE_PROTOCOL_ERROR` | `api` | `false` | `3` | `*aphotos.RemoteProtocolError` (unexpected HTTP status, malformed JSON, checksum/size mismatch) |
 | `RESOURCE_NOT_FOUND` | `api` | `false` | `3` | `*aphotos.NotFoundError` (HTTP `404` missing node, album, or folder) |
-| `CONFLICT` | `api` | `false` | `3` | `*aphotos.ConflictError` (HTTP `409` upload or node name conflict) |
+| `CONFLICT` | `api` | `false` | `3` | `*aphotos.ConflictError` (HTTP `409` upload conflict or local download file conflict) |
 | `NETWORK_ERROR` | `network` | `true` | `4` | `*aphotos.TransientNetworkError` or `context.DeadlineExceeded` |
 | `RATE_LIMITED` | `network` | `true` | `4` | `*aphotos.RateLimitError` (HTTP `429` Too Many Requests after retry budget exhausted) |
-| `PARTIAL_SUCCESS` | `api` | `false` | `5` | `*aphotos.PartialResultError` or batch transfer with mixed confirmed/failed items |
+| `PARTIAL_SUCCESS` | `api` | `false` | `5` | `*aphotos.PartialResultError` or batch transfer with mixed confirmed/unconfirmed/failed items |
 | `CONFIRMATION_REQUIRED` | `safety` | `false` | `6` | Missing `--confirm` on `trash add` or `doctor --write-probe` |
 | `READ_ONLY_VIOLATION` | `safety` | `false` | `6` | Attempted remote mutation when restricted by safety policy |
 | `FILESYSTEM_ERROR` | `filesystem` | `false` | `7` | Local file I/O error (`os.PathError` during upload/download) |

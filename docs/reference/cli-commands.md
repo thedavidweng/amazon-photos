@@ -1,4 +1,4 @@
-# Command Reference
+# CLI Command Reference
 
 Complete command and flag reference for `aphotos`.
 
@@ -230,7 +230,7 @@ aphotos folders create "Backups 2026" --parent ROOT_ID
 
 ### `aphotos upload <file-or-dir...>`
 
-Upload local file(s) or directory contents to Amazon Photos via streaming `POST` to the regional `cdproxy/nodes` endpoint. Uploads are marked `confirmed` only when HTTP 200/201 returns a verifiable remote node ID.
+Upload local file(s) or directory contents to Amazon Photos via streaming `POST` to the regional `cdproxy/nodes` endpoint. Uploads are marked `confirmed` only when HTTP 200/201 returns a verifiable remote node ID. When `--on-conflict skip` is used, a `409 Conflict` is marked `skipped` only when a remote file in the target folder is verified to have the same MD5 digest.
 
 | Flag | Default | Description |
 |---|---|---|
@@ -251,15 +251,17 @@ aphotos upload ./photos --recursive --dry-run
 
 ### `aphotos download <node-id...>`
 
-Download remote media node(s) via `/nodes/{id}/contentRedirection` with atomic temporary-file writes, path-traversal protection, size verification, and MD5 checksum verification.
+Download remote media node(s) via `/nodes/{id}/contentRedirection` with remote node metadata lookup (`GET /nodes/{id}`), atomic temporary-file writes, path-traversal protection, local file conflict protection, size verification, and MD5 checksum verification. If remote metadata lacks an MD5 digest, `aphotos` records `"md5Verified": false` and emits a warning in `meta.warnings`.
 
 | Flag | Default | Description |
 |---|---|---|
 | `--out` | `"."` | Destination directory for downloaded files |
+| `--on-conflict` | `"fail"` | Local file conflict resolution policy: `skip`, `fail`, or `rename` |
 | `--continue-on-error` | `false` | Continue downloading remaining nodes when an item fails |
 
 ```sh
 aphotos download NODE_ID_1 NODE_ID_2 --out ./downloads
+aphotos download NODE_ID_1 --out ./downloads --on-conflict rename
 ```
 
 ---

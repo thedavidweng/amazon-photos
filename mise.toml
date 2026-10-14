@@ -2,6 +2,8 @@
 go = "1.26.5"
 gofumpt = "0.12.0"
 golangci-lint = "2.12.2"
+goreleaser = "2.17.0"
+jactionlint = "1.8.2"
 
 [tasks.build]
 run = "go build ./..."
@@ -9,8 +11,37 @@ run = "go build ./..."
 [tasks.test]
 run = "go test ./..."
 
+[tasks.test-race]
+run = "go test -race ./..."
+
+[tasks.vet]
+run = "go vet ./..."
+
 [tasks.fmt]
 run = "gofumpt -extra -w ."
+
+[tasks.fmt-check]
+run = '''
+unformatted=$(gofumpt -extra -l .)
+if [ -n "$unformatted" ]; then
+  echo "gofumpt: files need formatting:"
+  echo "$unformatted"
+  exit 1
+fi
+'''
+
+[tasks.mod-tidy-check]
+run = '''
+tmp_dir=$(mktemp -d)
+trap 'rm -rf "$tmp_dir"' EXIT
+cp go.mod "$tmp_dir/go.mod"
+if [ -f go.sum ]; then cp go.sum "$tmp_dir/go.sum"; fi
+go mod tidy -modfile="$tmp_dir/go.mod"
+diff -u go.mod "$tmp_dir/go.mod"
+if [ -f go.sum ] || [ -f "$tmp_dir/go.sum" ]; then
+  diff -u go.sum "$tmp_dir/go.sum"
+fi
+'''
 
 [tasks.lint]
 run = "golangci-lint run"
@@ -37,4 +68,13 @@ fi
 '''
 
 [tasks.check]
-depends = ["fmt", "build", "test", "lint", "conventions"]
+run = [
+  "mise run fmt-check",
+  "mise run mod-tidy-check",
+  "mise run vet",
+  "mise run build",
+  "mise run test",
+  "mise run test-race",
+  "mise run lint",
+  "mise run conventions",
+]
