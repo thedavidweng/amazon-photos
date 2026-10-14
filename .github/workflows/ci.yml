@@ -76,7 +76,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
       - name: Install syft
         uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       - name: Run GoReleaser snapshot
@@ -89,7 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           test -s dist/checksums.txt
-          sha256sum -c dist/checksums.txt
+          (cd dist && sha256sum -c checksums.txt)
           test -s dist/homebrew/aphotos.rb
           grep -q 'class Aphotos < Formula' dist/homebrew/aphotos.rb
           for os_arch in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
