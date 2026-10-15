@@ -1149,3 +1149,48 @@ func TestMutateJSON_DoesNotBlindlyReplayOnNetworkOr5xxFailure(t *testing.T) {
 		t.Fatalf("expected *TransientNetworkError, got %T (%v)", err, err)
 	}
 }
+
+func TestGetNodePreservesReadErrors(t *testing.T) {
+	for _, status := range []int{401, 403, 404, 429} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			calls := 0
+			c, err := aphotos.NewClient(aphotos.Options{Region: aphotos.RegionUS, Cookies: map[string]string{"session-id": "test", "ubid-main": "test", "at-main": "test"}, DisableRetries: true, Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if r.URL.Path == "/drive/v1/nodes/wanted" {
+					return &http.Response{StatusCode: status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"message":"denied"}`))}, nil
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"wanted"}]}`))}, nil
+			})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			_, err = c.GetNode(context.Background(), "wanted")
+			if err == nil || calls != 1 {
+				t.Fatalf("GetNode error=%v calls=%d; want original error, one request", err, calls)
+			}
+			switch status {
+			case 401:
+				var e *aphotos.AuthenticationError
+				if !errors.As(err, &e) {
+					t.Fatal(err)
+				}
+			case 403:
+				var e *aphotos.PermissionError
+				if !errors.As(err, &e) {
+					t.Fatal(err)
+				}
+			case 404:
+				var e *aphotos.NotFoundError
+				if !errors.As(err, &e) || e.NodeID != "wanted" {
+					t.Fatal(err)
+				}
+			case 429:
+				var e *aphotos.RateLimitError
+				if !errors.As(err, &e) {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}

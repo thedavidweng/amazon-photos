@@ -350,3 +350,5 @@ Generate shell completion scripts.
 - `aphotos completion zsh`
 - `aphotos completion fish`
 - `aphotos completion powershell`
+
+Node reads preserve the original authentication (401), permission (403), missing-node (404), rate-limit (429), and network errors. They do not substitute a list query after a failed read. An empty node response is a protocol error.
