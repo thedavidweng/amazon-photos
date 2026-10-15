@@ -96,6 +96,47 @@ func TestSaveAndLoadAtomicPermissions(t *testing.T) {
 	}
 }
 
+func TestSaveReplacesExistingConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := Save(path, &Config{CurrentProfile: "before"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, &Config{CurrentProfile: "after"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CurrentProfile != "after" {
+		t.Fatalf("profile = %q, want after", cfg.CurrentProfile)
+	}
+}
+
+func TestSavePreservesDirectoryDestination(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(path, &Config{CurrentProfile: "default"}); err == nil {
+		t.Fatal("Save to a directory succeeded")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatal("Save replaced the destination directory")
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "config.yaml" {
+		t.Fatalf("temporary config was not cleaned up: %v", entries)
+	}
+}
+
 func TestParseCookiesFormats(t *testing.T) {
 	t.Run("Netscape cookies.txt with HttpOnly and underscore aliases", func(t *testing.T) {
 		input := `# Netscape HTTP Cookie File

@@ -120,7 +120,6 @@ func Save(path string, cfg *Config) error {
 		}
 	}
 
-	_ = os.Remove(path)
 	if err := os.Rename(tmpPath, path); err != nil {
 		return &aphotos.ConfigError{
 			Field:   "config_file",
