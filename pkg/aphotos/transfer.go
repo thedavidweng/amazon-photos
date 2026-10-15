@@ -218,6 +218,7 @@ func (c *Client) DownloadBatch(ctx context.Context, nodeIDs []string, opts Batch
 	}
 
 	return runBatchWorkers(ctx, len(cleanedIDs), workerCount, opts.ContinueOnError, "/nodes/contentRedirection", func(workCtx context.Context, idx int, doneCount *atomic.Int32) (TransferResult, error) {
+		ownerID := ownerID
 		nodeID := cleanedIDs[idx]
 		var itemProgress ProgressFunc
 		if opts.Progress != nil {

@@ -1002,6 +1002,57 @@ func TestUploadBatch_DirectoryWalkDryRunAndErrorPropagation(t *testing.T) {
 	})
 }
 
+func TestDownloadBatch_ConcurrentNodeOwnersWithoutRootOwner(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ready := make(chan struct{})
+	var metadataRequests atomic.Int32
+	client := newTestTransferClient(t, roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path == "/drive/v1/nodes" {
+			return jsonResponse(req, http.StatusOK, `{"data":[{"id":"ROOT","kind":"FOLDER","isRoot":true}]}`), nil
+		}
+		nodeID := strings.Split(strings.TrimPrefix(req.URL.Path, "/drive/v1/nodes/"), "/")[0]
+		if nodeID != "NODE_A" && nodeID != "NODE_B" {
+			return nil, fmt.Errorf("unexpected request: %s", req.URL.Path)
+		}
+		if strings.HasSuffix(req.URL.Path, "/contentRedirection") {
+			if got := req.URL.Query().Get("ownerId"); got != "OWNER_"+nodeID {
+				t.Errorf("%s ownerId = %q, want %q", nodeID, got, "OWNER_"+nodeID)
+			}
+			return jsonResponse(req, http.StatusOK, nodeID), nil
+		}
+		if metadataRequests.Add(1) == 2 {
+			close(ready)
+		}
+		select {
+		case <-ready:
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		}
+		return jsonResponse(req, http.StatusOK, fmt.Sprintf(`{"id":%q,"name":%q,"kind":"FILE","ownerId":%q}`, nodeID, nodeID+".jpg", "OWNER_"+nodeID)), nil
+	}))
+	destDir := t.TempDir()
+	results, err := client.DownloadBatch(ctx, []string{"NODE_A", "NODE_B"}, aphotos.BatchDownloadOptions{
+		DestDir:     destDir,
+		Concurrency: 2,
+	})
+	if err != nil {
+		t.Fatalf("DownloadBatch: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(results))
+	}
+	for i, nodeID := range []string{"NODE_A", "NODE_B"} {
+		if results[i].Status != aphotos.TransferConfirmed {
+			t.Errorf("%s status = %s, want confirmed", nodeID, results[i].Status)
+		}
+		content, err := os.ReadFile(filepath.Join(destDir, nodeID+".jpg"))
+		if err != nil || string(content) != nodeID {
+			t.Errorf("%s downloaded content = %q, err = %v", nodeID, content, err)
+		}
+	}
+}
+
 func TestDownloadBatch_PartialAndSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "NODE_BAD") {
