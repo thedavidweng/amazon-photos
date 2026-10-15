@@ -42,7 +42,8 @@ Download prebuilt archives for `darwin`, `linux`, or `windows` (`amd64` / `arm64
 ### First CLI Commands
 
 ```shell
-aphotos auth import ./cookies.json
+aphotos auth login
+# For existing cookie files: aphotos auth import ./cookies.json
 aphotos doctor
 aphotos usage --json
 aphotos search --year 2025 --sort content-desc --json

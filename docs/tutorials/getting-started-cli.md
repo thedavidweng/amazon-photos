@@ -29,35 +29,30 @@ Verify the binary runs:
 aphotos --version
 ```
 
-## 2. Export Browser Cookies
+## 2. Sign In Interactively
 
-Amazon Photos uses three browser session cookies for authentication:
-
-- `session-id`
-- `ubid-main` (or `ubid-acb<tld>` for non-US marketplaces)
-- `at-main` (or `at-acb<tld>` for non-US marketplaces)
-
-Create a temporary JSON file named `cookies.json` with `0600` permissions containing the three cookies from your browser's developer tools:
+Run:
 
 ```sh
-umask 077
-cat <<'EOF' > cookies.json
-{
-  "session-id": "140-0000000-0000000",
-  "ubid-main": "130-0000000-0000000",
-  "at-main": "Atza|..."
-}
-EOF
+aphotos auth login
 ```
 
-## 3. Import Credentials and Verify Connectivity
+Choose your marketplace (for example `ca`). Follow the displayed Amazon Photos
+link in your browser and finish Amazon sign-in, including MFA if requested.
+Open Developer Tools → Network, reload Photos, and select an authenticated
+request to your Amazon marketplace. Copy its **Cookie request header** value,
+then paste it into the terminal and press Enter. Input is hidden; Ctrl+C cancels.
+Do not copy `Set-Cookie` response headers.
 
-Import the cookie file into your local `0600` profile store and delete the temporary file:
+The CLI checks the session with a read-only account request, then saves only the
+three required session cookies to your selected profile with restricted file
+permissions. A failed check leaves your previous profile intact. No OAuth grant
+or password is requested by the CLI.
 
-```sh
-aphotos auth import ./cookies.json
-rm -f ./cookies.json
-```
+## 3. Verify Connectivity
+
+For automation or existing exports, use `aphotos auth import <cookie-file>`;
+see [sign-in instructions](../how-to/sign-in.md).
 
 Check your authentication status:
 

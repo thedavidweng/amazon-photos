@@ -27,6 +27,7 @@ mise run test
 mise run test-race
 mise run lint
 mise run conventions
+```
 
 ## Project Structure
 

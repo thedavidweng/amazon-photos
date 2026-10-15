@@ -111,43 +111,17 @@ func (c *Client) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 	}
 	path := fmt.Sprintf("/nodes/%s", url.PathEscape(trimmedID))
 	var node Node
-	if err := c.doReadJSON(ctx, path, baseQueryParams(), &node); err == nil && strings.TrimSpace(node.ID) != "" {
-		return &node, nil
-	} else if err != nil {
+	if err := c.doReadJSON(ctx, path, baseQueryParams(), &node); err != nil {
 		var nfErr *NotFoundError
 		if errors.As(err, &nfErr) {
-			if nfErr.NodeID == "" {
-				nfErr.NodeID = trimmedID
-			}
-			return nil, nfErr
+			nfErr.NodeID = trimmedID
 		}
-	}
-
-	val, escErr := escapeFilterValue(trimmedID)
-	if escErr != nil {
-		return nil, &InvalidFilterError{
-			Endpoint: "/nodes",
-			Message:  "invalid node ID: " + escErr.Error(),
-		}
-	}
-	params := baseQueryParams()
-	params.Set("filters", "id:"+val)
-	params.Set("limit", "1")
-	params.Set("offset", "0")
-	var listResp nodesListResponse
-	if err := c.doReadJSON(ctx, "/nodes", params, &listResp); err != nil {
 		return nil, err
 	}
-	if len(listResp.Data) == 0 || strings.TrimSpace(listResp.Data[0].ID) == "" {
-		return nil, &NotFoundError{
-			StatusCode: 404,
-			Endpoint:   "/nodes",
-			NodeID:     trimmedID,
-			Message:    fmt.Sprintf("node %q not found", trimmedID),
-		}
+	if strings.TrimSpace(node.ID) == "" {
+		return nil, &RemoteProtocolError{Endpoint: path, Message: "node response contained no node ID"}
 	}
-	found := listResp.Data[0]
-	return &found, nil
+	return &node, nil
 }
 
 func (c *Client) GetUsage(ctx context.Context) (*Usage, error) {

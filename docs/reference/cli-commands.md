@@ -29,11 +29,30 @@ The SDK and CLI preserve both timestamps in UTC and never conflate upload time w
 
 ---
 
+## Node Read Errors
+
+Node reads preserve the original authentication (401), permission (403), missing-node (404), rate-limit (429), and network errors. They do not substitute a list query after a failed read. An empty node response is a protocol error.
+
 ## Commands
 
 ### `aphotos auth`
 
 Manage Amazon Photos session cookie credentials.
+
+#### `aphotos auth login`
+
+Interactive terminal sign-in: prompts for the marketplace unless `--region` is
+supplied, displays the regional Amazon Photos URL, and accepts a hidden Cookie
+request header paste. A read-only `GetRoot` check must succeed before replacing
+the selected profile. Cancellation, network failure, or rejected cookies do not
+save credentials. The protocol evidence grade is unchanged. Requires a TTY;
+use `auth import` for automation. Prompts go to stderr, so `--json` stdout remains
+a single result envelope. No command-specific flags.
+
+```sh
+aphotos auth login
+aphotos auth login --region ca --profile canada
+```
 
 #### `aphotos auth import <cookie-file>`
 

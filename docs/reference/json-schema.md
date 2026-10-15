@@ -149,3 +149,16 @@ When a batch or multi-page operation partially succeeds (e.g., `upload --continu
 | `FILESYSTEM_ERROR` | `filesystem` | `false` | `7` | Local file I/O error (`os.PathError` during upload/download) |
 | `CONFIG_ERROR` | `config` | `false` | `8` | `*aphotos.ConfigError` (missing/ambiguous region, missing required cookie, invalid config file) |
 | `INTERRUPTED` | `interrupted` | `false` | `130` | `context.Canceled` or `SIGINT` / `SIGTERM` interrupt |
+
+Node reads preserve the original authentication (401), permission (403), missing-node (404), rate-limit (429), and network errors. They do not substitute a list query after a failed read. An empty node response is a protocol error.
+
+## Interactive Login Result
+
+`aphotos auth login --json` uses the standard envelope with `meta.command` set to
+`auth login`. Interactive prompts and progress are written to stderr. Successful
+`data` contains `authenticated` (boolean, always true), `profile` (string),
+`region` (marketplace code), `evidence` (`verified` or `experimental`), and
+`config_path` (saved profile store path). No cookie values are returned.
+Failure uses the existing structured error envelope and leaves stored credentials
+unchanged. This command still requires a terminal; `--json` does not disable its
+interactive prompts.
