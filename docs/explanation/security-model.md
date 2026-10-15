@@ -2,6 +2,15 @@
 
 This page explains how `amazon-photos` handles browser session cookies, file permissions, secret indirection, cross-host redirects, and output redaction.
 
+## Interactive Sign-in
+
+`aphotos auth login` accepts a hidden Cookie request header in a terminal. It
+keeps only the resolved marketplace's three required cookies and performs a
+read-only root request before replacing the selected profile. Prompts go to
+stderr; neither success nor error output includes the pasted secret. It does not
+capture passwords, launch browser automation, or provide OAuth authorization.
+The terminal returns to its previous mode after each prompt, including on cancel.
+
 ## Browser Session Cookie Authentication
 
 Because Amazon Photos does not offer public OAuth tokens or API keys, requests authenticate using three session cookies established by signing in to Amazon Photos in a web browser:

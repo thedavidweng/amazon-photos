@@ -202,6 +202,6 @@ func newAuthCmd() *cobra.Command {
 		},
 	}
 
-	authCmd.AddCommand(importCmd, statusCmd, logoutCmd)
+	authCmd.AddCommand(newAuthLoginCmd(), importCmd, statusCmd, logoutCmd)
 	return authCmd
 }

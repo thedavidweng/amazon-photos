@@ -39,6 +39,21 @@ Node reads preserve the original authentication (401), permission (403), missing
 
 Manage Amazon Photos session cookie credentials.
 
+#### `aphotos auth login`
+
+Interactive terminal sign-in: prompts for the marketplace unless `--region` is
+supplied, displays the regional Amazon Photos URL, and accepts a hidden Cookie
+request header paste. A read-only `GetRoot` check must succeed before replacing
+the selected profile. Cancellation, network failure, or rejected cookies do not
+save credentials. The protocol evidence grade is unchanged. Requires a TTY;
+use `auth import` for automation. Prompts go to stderr, so `--json` stdout remains
+a single result envelope. No command-specific flags.
+
+```sh
+aphotos auth login
+aphotos auth login --region ca --profile canada
+```
+
 #### `aphotos auth import <cookie-file>`
 
 Import browser cookies from a Netscape `cookies.txt` export, JSON array of cookie objects (`[{"name":"...","value":"..."}]`), JSON key-value map (`{"session-id":"...","ubid-main":"...","at-main":"..."}`), or raw `Cookie:` header file. Both underscore (`session_id`, `ubid_main`, `at_main`, `ubid_acb*`, `at_acb*`) and hyphen (`session-id`, `ubid-main`, `at-main`, `ubid-acb*`, `at-acb*`) input keys are accepted and normalized to canonical browser wire names.
