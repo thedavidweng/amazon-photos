@@ -154,6 +154,8 @@ Node lists missing required `count`/`data` fields fail with `REMOTE_PROTOCOL_ERR
 
 Node reads preserve the original authentication (401), permission (403), missing-node (404), rate-limit (429), and network errors. They do not substitute a list query after a failed read. An empty node response is a protocol error.
 
+Mutations and uploads also require final HTTP 2xx status. Final 1xx/3xx responses produce `REMOTE_PROTOCOL_ERROR`; a Node ID in such a response cannot confirm an upload. The Go SDK exposes server `Retry-After` on `TransientNetworkError.RetryAfter` for HTTP 5xx, including 503; the CLI `retry_after_ms` field continues to describe rate-limit errors.
+
 ## Interactive Login Result
 
 `aphotos auth login --json` uses the standard envelope with `meta.command` set to

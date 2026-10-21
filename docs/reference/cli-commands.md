@@ -4,6 +4,8 @@ Complete command and flag reference for `aphotos`.
 
 Node lists require explicit `count` and `data` fields; valid zero results remain successful. Malformed list responses fail with `REMOTE_PROTOCOL_ERROR`. All-pages enumeration that stops short of the advertised count fails with `PARTIAL_SUCCESS` and preserves collected results.
 
+Remote writes require a final HTTP 2xx response. Final 1xx/3xx responses fail with `REMOTE_PROTOCOL_ERROR`; existing HTTP 4xx/5xx error classifications remain intact. Mutations and uploads are not automatically retried after uncertain failures.
+
 ## Global Flags
 
 Every command accepts the following persistent flags:
