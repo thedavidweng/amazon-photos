@@ -2,6 +2,8 @@
 
 Complete command and flag reference for `aphotos`.
 
+Node lists require explicit `count` and `data` fields; valid zero results remain successful. Malformed list responses fail with `REMOTE_PROTOCOL_ERROR`. All-pages enumeration that stops short of the advertised count fails with `PARTIAL_SUCCESS` and preserves collected results.
+
 ## Global Flags
 
 Every command accepts the following persistent flags:

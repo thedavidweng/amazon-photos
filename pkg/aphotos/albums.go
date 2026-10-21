@@ -97,10 +97,10 @@ func (c *Client) ListFolders(ctx context.Context, parentID string, limit, offset
 	}
 
 	var resp nodesListResponse
-	if err := c.doReadJSON(ctx, path, params, &resp); err != nil {
+	if err := c.readNodesJSON(ctx, path, params, &resp); err != nil {
 		return nil, 0, err
 	}
-	return resp.Data, resp.Count, nil
+	return resp.Data, *resp.Count, nil
 }
 
 func (c *Client) ListAlbums(ctx context.Context, limit, offset int) ([]Node, int, error) {
@@ -115,10 +115,10 @@ func (c *Client) ListAlbums(ctx context.Context, limit, offset int) ([]Node, int
 	params.Set("offset", strconv.Itoa(normOffset))
 
 	var resp nodesListResponse
-	if err := c.doReadJSON(ctx, "/nodes", params, &resp); err != nil {
+	if err := c.readNodesJSON(ctx, "/nodes", params, &resp); err != nil {
 		return nil, 0, err
 	}
-	return resp.Data, resp.Count, nil
+	return resp.Data, *resp.Count, nil
 }
 
 type createAlbumPayload struct {

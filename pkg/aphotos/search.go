@@ -2,7 +2,6 @@ package aphotos
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -44,12 +43,6 @@ type ChildrenOptions struct {
 	Sort        SortOrder
 }
 
-type searchResponse struct {
-	Count        int             `json:"count"`
-	Data         []Node          `json:"data"`
-	Aggregations json.RawMessage `json:"aggregations,omitempty"`
-}
-
 func (c *Client) Search(ctx context.Context, opts SearchOptions) (*Page[Node], error) {
 	offset, limit, err := normalizeOffsetAndLimit(opts.Offset, opts.Limit)
 	if err != nil {
@@ -83,8 +76,8 @@ func (c *Client) Search(ctx context.Context, opts SearchOptions) (*Page[Node], e
 		params.Set("groupByForTime", strings.TrimSpace(opts.GroupByForTime))
 	}
 
-	var resp searchResponse
-	if err := c.doReadJSON(ctx, "/search", params, &resp); err != nil {
+	var resp nodesListResponse
+	if err := c.readNodesJSON(ctx, "/search", params, &resp); err != nil {
 		return nil, attachFilterToError(err, filterExpr)
 	}
 
@@ -93,7 +86,7 @@ func (c *Client) Search(ctx context.Context, opts SearchOptions) (*Page[Node], e
 		return nil, aggErr
 	}
 
-	return buildSinglePage(resp.Data, resp.Count, offset, limit, aggs), nil
+	return buildSinglePage(resp.Data, *resp.Count, offset, limit, aggs), nil
 }
 
 func (c *Client) SearchAll(ctx context.Context, opts SearchOptions) (*Page[Node], error) {
@@ -181,11 +174,11 @@ func (c *Client) QueryNodes(ctx context.Context, opts NodeQueryOptions) (*Page[N
 	}
 
 	var resp nodesListResponse
-	if err := c.doReadJSON(ctx, "/nodes", params, &resp); err != nil {
+	if err := c.readNodesJSON(ctx, "/nodes", params, &resp); err != nil {
 		return nil, attachFilterToError(err, filterExpr)
 	}
 
-	return buildSinglePage(resp.Data, resp.Count, offset, limit, nil), nil
+	return buildSinglePage(resp.Data, *resp.Count, offset, limit, nil), nil
 }
 
 func (c *Client) QueryAllNodes(ctx context.Context, opts NodeQueryOptions) (*Page[Node], error) {
@@ -263,11 +256,11 @@ func (c *Client) ListChildren(ctx context.Context, parentID string, opts Childre
 
 	endpoint := fmt.Sprintf("/nodes/%s/children", url.PathEscape(cleanParentID))
 	var resp nodesListResponse
-	if err := c.doReadJSON(ctx, endpoint, params, &resp); err != nil {
+	if err := c.readNodesJSON(ctx, endpoint, params, &resp); err != nil {
 		return nil, attachFilterToError(err, filterExpr)
 	}
 
-	return buildSinglePage(resp.Data, resp.Count, offset, limit, nil), nil
+	return buildSinglePage(resp.Data, *resp.Count, offset, limit, nil), nil
 }
 
 func (c *Client) ListAllChildren(ctx context.Context, parentID string, opts ChildrenOptions) (*Page[Node], error) {

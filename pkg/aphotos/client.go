@@ -335,7 +335,7 @@ func (c *Client) doReadJSON(ctx context.Context, path string, query url.Values, 
 			return lastErr
 		}
 
-		if resp.StatusCode >= 400 {
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 			retryAfter := parseRetryAfter(resp.Header)
 			httpErr := classifyHTTPError(normPath, resp, body, retryAfter)
 			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {

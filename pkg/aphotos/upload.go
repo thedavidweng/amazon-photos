@@ -428,7 +428,7 @@ func (c *Client) findConflictingRemoteNode(
 	params.Set("filters", filterExpr)
 
 	var resp nodesListResponse
-	if err := c.doReadJSON(ctx, "/nodes", params, &resp); err != nil {
+	if err := c.readNodesJSON(ctx, "/nodes", params, &resp); err != nil {
 		return nil, err
 	}
 

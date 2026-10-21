@@ -12,8 +12,43 @@ import (
 )
 
 type nodesListResponse struct {
-	Count int    `json:"count"`
-	Data  []Node `json:"data"`
+	Count        *int            `json:"count"`
+	Data         []Node          `json:"data"`
+	Aggregations json.RawMessage `json:"aggregations,omitempty"`
+}
+
+func (c *Client) readNodesJSON(ctx context.Context, endpoint string, params url.Values, resp *nodesListResponse) error {
+	if err := c.doReadJSON(ctx, endpoint, params, resp); err != nil {
+		return err
+	}
+	if resp.Count == nil || resp.Data == nil {
+		return &RemoteProtocolError{
+			Endpoint: endpoint,
+			Message:  "node list response requires count and a data array",
+		}
+	}
+	if *resp.Count < len(resp.Data) {
+		return &RemoteProtocolError{
+			Endpoint: endpoint,
+			Message:  "node list count is less than the number of returned nodes",
+		}
+	}
+	offset, _ := strconv.Atoi(params.Get("offset"))
+	if len(resp.Data) == 0 && offset < *resp.Count {
+		return &RemoteProtocolError{
+			Endpoint: endpoint,
+			Message:  fmt.Sprintf("empty node list at offset %d before advertised count %d", offset, *resp.Count),
+		}
+	}
+	for i := range resp.Data {
+		if strings.TrimSpace(resp.Data[i].ID) == "" {
+			return &RemoteProtocolError{
+				Endpoint: endpoint,
+				Message:  fmt.Sprintf("node list item %d has no node ID", i),
+			}
+		}
+	}
+	return nil
 }
 
 type UsageBucket struct {

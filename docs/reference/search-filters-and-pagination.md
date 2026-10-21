@@ -44,6 +44,8 @@ Reference for the Amazon Photos / Drive v1 search filter DSL, `FilterBuilder`, p
 
 - **Page size (`limit`)**: `1`–`200` (`MaxPageLimit = 200`, `DefaultPageLimit = 50`).
 - **Offset advancement**: Pages advance strictly by `offset + limit` and deduplicate items by `Node.ID`.
+- **List responses**: Require an explicit non-null integer `count` and `data` array. `{"count":0,"data":[]}` is a valid empty result. Missing envelopes, impossible counts, missing Node IDs, and empty pages before the advertised end return `RemoteProtocolError`. Nested `info.nodeId` remains supported.
+- **Completeness**: Single-page `Complete` means the page request succeeded; `HasMore` and `TotalCount` still determine whether enumeration is finished. All-pages helpers return `PartialResultError` with `Complete=false` when collected unique nodes fall short of the highest advertised count, and stop on pages with no new Node IDs. Nonzero starting offsets cover only the remaining range.
 - **`/search` and `/nodes/{id}/children`**: Support unbounded offset pagination via `SearchAll`, `SearchIter`, and `ListAllChildren`.
 - **`/nodes` and `/trash` `9999` window limit**: Amazon's `/nodes` and `/trash` endpoints enforce `offset + limit <= 9999` (`MaxNodeOffsetWindow = 9999`). `QueryAllNodes` stops at the `9999` ceiling (with a warning in `Page.Warnings`) unless `TimeWindowSubdivide: true` is set with `WindowStart` and `WindowEnd` to recursively bisect time ranges.
 

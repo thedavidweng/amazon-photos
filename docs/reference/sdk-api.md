@@ -60,6 +60,10 @@ func (c *Client) ListAllChildren(ctx context.Context, parentID string, opts Chil
 func (c *Client) GetAggregations(ctx context.Context, opts AggregationOptions) (map[string]AggregationBucket, error)
 ```
 
+Node list methods reject missing/null `count` or `data`, invalid counts, missing Node IDs, and premature empty pages with `*RemoteProtocolError`. Explicit `{"count":0,"data":[]}` is valid; nested `info.nodeId` is supported. Read requests require a final HTTP 2xx response.
+
+Single-page `Page.Complete` describes the requested page, so it can coexist with `HasMore=true`. All-pages helpers retain collected nodes and return `*PartialResultError` with `Complete=false` if pagination stops short of the highest advertised count. An invalid first page returns `*RemoteProtocolError` without a page.
+
 ---
 
 ## Upload and Download Methods
