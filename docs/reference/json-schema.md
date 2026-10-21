@@ -60,6 +60,8 @@ When `--json` is enabled:
 
 When a batch or multi-page operation partially succeeds (e.g., `upload --continue-on-error`, `download --continue-on-error`, unconfirmed conflict verification, or pagination interrupted after initial pages), the envelope includes both `data` and `error` with `code: "PARTIAL_SUCCESS"`:
 
+Node lists missing required `count`/`data` fields fail with `REMOTE_PROTOCOL_ERROR` (exit `3`); an explicit zero count with an empty array remains successful. All-pages count truncation or nonprogressing pages return `PARTIAL_SUCCESS` (exit `5`) with collected nodes and `complete:false`. Single-page `complete:true` describes the page request and can coexist with `hasMore:true`.
+
 ```json
 {
   "ok": false,
@@ -151,6 +153,8 @@ When a batch or multi-page operation partially succeeds (e.g., `upload --continu
 | `INTERRUPTED` | `interrupted` | `false` | `130` | `context.Canceled` or `SIGINT` / `SIGTERM` interrupt |
 
 Node reads preserve the original authentication (401), permission (403), missing-node (404), rate-limit (429), and network errors. They do not substitute a list query after a failed read. An empty node response is a protocol error.
+
+Mutations and uploads also require final HTTP 2xx status. Final 1xx/3xx responses produce `REMOTE_PROTOCOL_ERROR`; a Node ID in such a response cannot confirm an upload. The Go SDK exposes server `Retry-After` on `TransientNetworkError.RetryAfter` for HTTP 5xx, including 503; the CLI `retry_after_ms` field continues to describe rate-limit errors.
 
 ## Interactive Login Result
 

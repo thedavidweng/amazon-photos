@@ -61,10 +61,10 @@ func (c *Client) ListTrash(ctx context.Context, opts TrashListOptions) ([]Node, 
 	params.Set("offset", strconv.Itoa(normOffset))
 
 	var resp nodesListResponse
-	if err := c.doReadJSON(ctx, "/trash", params, &resp); err != nil {
+	if err := c.readNodesJSON(ctx, "/trash", params, &resp); err != nil {
 		return nil, 0, err
 	}
-	return resp.Data, resp.Count, nil
+	return resp.Data, *resp.Count, nil
 }
 
 func (c *Client) ListAllTrash(ctx context.Context) ([]Node, error) {

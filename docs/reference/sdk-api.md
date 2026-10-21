@@ -60,6 +60,10 @@ func (c *Client) ListAllChildren(ctx context.Context, parentID string, opts Chil
 func (c *Client) GetAggregations(ctx context.Context, opts AggregationOptions) (map[string]AggregationBucket, error)
 ```
 
+Node list methods reject missing/null `count` or `data`, invalid counts, missing Node IDs, and premature empty pages with `*RemoteProtocolError`. Explicit `{"count":0,"data":[]}` is valid; nested `info.nodeId` is supported. Read requests require a final HTTP 2xx response.
+
+Single-page `Page.Complete` describes the requested page, so it can coexist with `HasMore=true`. All-pages helpers retain collected nodes and return `*PartialResultError` with `Complete=false` if pagination stops short of the highest advertised count. An invalid first page returns `*RemoteProtocolError` without a page.
+
 ---
 
 ## Upload and Download Methods
@@ -138,6 +142,10 @@ All SDK errors support `errors.As` and scrub sensitive tokens via `Redact(s stri
 | `*InvalidFilterError` | HTTP `400 Bad Request` or malformed filter expression |
 | `*NotFoundError` | HTTP `404 Not Found` |
 | `*ConflictError` | HTTP `409 Conflict` (carries `ConflictingNodeID` when reported by server) or local download file collision |
-| `*TransientNetworkError` | Network transport error, premature EOF, or HTTP `5xx` |
-| `*RemoteProtocolError` | Malformed JSON, missing required protocol fields, or download size/MD5 mismatch |
+| `*TransientNetworkError` | Network transport error, premature EOF, or HTTP `5xx`; carries parsed `RetryAfter time.Duration` when supplied by the server |
+| `*RemoteProtocolError` | Unexpected final HTTP status, malformed JSON, missing required protocol fields, or download size/MD5 mismatch |
 | `*PartialResultError` | Unconfirmed upload, unverified conflict skip, or partial batch/pagination result |
+
+JSON mutations and uploads require final HTTP 2xx status; final 1xx/3xx responses preserve status and request ID in `*RemoteProtocolError`. Existing HTTP 4xx/5xx classifications remain intact. A 2xx upload still requires a verifiable Node ID to be confirmed.
+
+`TransientNetworkError.RetryAfter` preserves a positive `Retry-After` delta-seconds or HTTP-date delay, including HTTP 503 and response-body read failures. Missing, invalid, zero, or expired values yield zero. The exposed delay is not capped by `Options.MaxRetryAfter`, which limits automatic waits. This field does not authorize replaying an uncertain mutation or upload; their existing replay policy is unchanged.

@@ -323,6 +323,7 @@ func (c *Client) doReadJSON(ctx context.Context, path string, query url.Values, 
 				StatusCode: resp.StatusCode,
 				Endpoint:   normPath,
 				RequestID:  extractRequestID(resp.Header),
+				RetryAfter: parseRetryAfter(resp.Header),
 				Message:    Redact(readErr.Error()),
 				Cause:      readErr,
 			}
@@ -335,7 +336,7 @@ func (c *Client) doReadJSON(ctx context.Context, path string, query url.Values, 
 			return lastErr
 		}
 
-		if resp.StatusCode >= 400 {
+		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 			retryAfter := parseRetryAfter(resp.Header)
 			httpErr := classifyHTTPError(normPath, resp, body, retryAfter)
 			if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
@@ -433,12 +434,13 @@ func (c *Client) doMutateJSON(ctx context.Context, method, path string, payload,
 			StatusCode: resp.StatusCode,
 			Endpoint:   normPath,
 			RequestID:  extractRequestID(resp.Header),
+			RetryAfter: parseRetryAfter(resp.Header),
 			Message:    Redact(readErr.Error()),
 			Cause:      readErr,
 		}
 	}
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return classifyHTTPError(normPath, resp, body, parseRetryAfter(resp.Header))
 	}
 

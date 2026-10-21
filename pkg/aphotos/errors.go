@@ -135,6 +135,7 @@ type TransientNetworkError struct {
 	StatusCode int
 	Endpoint   string
 	RequestID  string
+	RetryAfter time.Duration
 	Message    string
 	Cause      error
 }
@@ -294,6 +295,7 @@ func classifyHTTPError(endpoint string, resp *http.Response, body []byte, retryA
 				StatusCode: resp.StatusCode,
 				Endpoint:   endpoint,
 				RequestID:  reqID,
+				RetryAfter: retryAfter,
 				Message:    msg,
 			}
 		}

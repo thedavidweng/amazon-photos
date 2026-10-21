@@ -143,13 +143,17 @@ func paginateUnbounded(
 		if len(p.Items) == 0 {
 			break
 		}
-		dupCount += appendUniqueNodes(&merged, p.Items, seen)
+		pageDuplicates := appendUniqueNodes(&merged, p.Items, seen)
+		dupCount += pageDuplicates
+		if pageDuplicates == len(p.Items) {
+			break
+		}
 		currentOffset += pageLimit
 		hasMore = p.HasMore
 	}
 
 	warnings = appendDuplicateWarning(warnings, dupCount)
-	return &Page[Node]{
+	return completePagination(endpoint, &Page[Node]{
 		Items:        merged,
 		TotalCount:   max(totalCount, len(merged)),
 		Offset:       startOffset,
@@ -159,7 +163,7 @@ func paginateUnbounded(
 		Complete:     true,
 		Warnings:     warnings,
 		Aggregations: firstPage.Aggregations,
-	}, nil
+	})
 }
 
 func paginateBounded9999(
@@ -226,7 +230,11 @@ func paginateBounded9999(
 			hasMore = false
 			break
 		}
-		dupCount += appendUniqueNodes(&merged, p.Items, seen)
+		pageDuplicates := appendUniqueNodes(&merged, p.Items, seen)
+		dupCount += pageDuplicates
+		if pageDuplicates == len(p.Items) {
+			break
+		}
 		currentOffset += stepLimit
 		hasMore = p.HasMore
 	}
@@ -255,7 +263,7 @@ func paginateBounded9999(
 		}
 	}
 
-	return &Page[Node]{
+	return completePagination(endpoint, &Page[Node]{
 		Items:        merged,
 		TotalCount:   max(totalCount, len(merged)),
 		Offset:       startOffset,
@@ -265,7 +273,22 @@ func paginateBounded9999(
 		Complete:     true,
 		Warnings:     warnings,
 		Aggregations: firstPage.Aggregations,
-	}, nil
+	})
+}
+
+func completePagination(endpoint string, page *Page[Node]) (*Page[Node], error) {
+	if page.Offset+len(page.Items) < page.TotalCount {
+		page.Complete = false
+		page.HasMore = true
+		message := fmt.Sprintf("pagination returned %d unique nodes from offset %d of advertised count %d", len(page.Items), page.Offset, page.TotalCount)
+		page.Warnings = append(page.Warnings, message)
+		return page, &PartialResultError{
+			Endpoint: endpoint,
+			Message:  message,
+			Warnings: page.Warnings,
+		}
+	}
+	return page, nil
 }
 
 func appendDuplicateWarning(warnings []string, dupCount int) []string {

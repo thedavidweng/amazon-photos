@@ -82,7 +82,7 @@ func bindSearchFlags(cmd *cobra.Command, sf *searchFlags, includeType bool) {
 	cmd.Flags().IntVar(&sf.limit, "limit", 50, "page size (1-200)")
 	cmd.Flags().IntVar(&sf.offset, "offset", 0, "starting pagination offset")
 	cmd.Flags().StringVar(&sf.sortOrder, "sort", "created-desc", "sort order: created-desc, created-asc (cloud upload date), content-desc, content-asc (media capture date), name-asc, name-desc")
-	cmd.Flags().BoolVar(&sf.all, "all", false, "paginate through all matching results")
+	cmd.Flags().BoolVar(&sf.all, "all", false, "paginate through all matching results; fail with partial results if enumeration is incomplete")
 }
 
 func runSearchCommand(ctx context.Context, r *output.Renderer, meta output.RuntimeMetaInput, client *aphotos.Client, sf *searchFlags, fixedType string) error {

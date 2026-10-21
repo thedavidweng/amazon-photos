@@ -305,13 +305,14 @@ func (c *Client) uploadOnce(
 			StatusCode: resp.StatusCode,
 			Endpoint:   "/cdproxy/nodes",
 			RequestID:  extractRequestID(resp.Header),
+			RetryAfter: parseRetryAfter(resp.Header),
 			Message:    Redact(readErr.Error()),
 			Cause:      readErr,
 		}
 		return failedTransferResult(name, req.LocalPath, stream.readBytes, computedMD5, netErr), netErr
 	}
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		httpErr := classifyHTTPError("/cdproxy/nodes", resp, respBody, parseRetryAfter(resp.Header))
 		return failedTransferResult(name, req.LocalPath, stream.readBytes, computedMD5, httpErr), httpErr
 	}
@@ -428,7 +429,7 @@ func (c *Client) findConflictingRemoteNode(
 	params.Set("filters", filterExpr)
 
 	var resp nodesListResponse
-	if err := c.doReadJSON(ctx, "/nodes", params, &resp); err != nil {
+	if err := c.readNodesJSON(ctx, "/nodes", params, &resp); err != nil {
 		return nil, err
 	}
 

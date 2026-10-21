@@ -72,7 +72,7 @@ func NewRootCommand(opts RootOptions) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "aphotos",
 		Short:         "Unofficial Amazon Photos / Drive v1 CLI",
-		Long:          "Unofficial Amazon Photos / Drive v1 command-line client with versioned JSON output and verified transfers.",
+		Long:          "Unofficial Amazon Photos / Drive v1 command-line client with versioned JSON output and verified transfers. Remote writes require a final HTTP 2xx response.",
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
