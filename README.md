@@ -11,6 +11,16 @@
 
 `amazon-photos` provides a pure Go SDK (`github.com/thedavidweng/amazon-photos/pkg/aphotos`) and single-binary CLI (`aphotos`) for Amazon Photos / Amazon Drive v1, with structured JSON output, explicit regional routing (`content-na.drive.amazonaws.com`, `content-eu.drive.amazonaws.com`, `content-jp.drive.amazonaws.com`), and verified media transfers.
 
+## Related projects
+
+Three sibling projects share one Amazon Photos foundation:
+
+| Project | What it is | Relation |
+| --- | --- | --- |
+| [`amazon-photos`](https://github.com/thedavidweng/amazon-photos) | Go SDK (`pkg/aphotos`) and `aphotos` CLI | This project; the foundation both apps below import |
+| [`rainforest`](https://github.com/thedavidweng/rainforest) | Cross-platform desktop app for one-time upload, one-way folder backup, and recovery download | End-user client on this SDK |
+| [`immich-amazon-sync`](https://github.com/thedavidweng/immich-amazon-sync) | Self-hosted container service | Server-side Immich → Amazon Photos backup on this SDK |
+
 ## Highlights
 
 - **Pure Go SDK (`pkg/aphotos`)**: Zero third-party dependencies, zero network/disk I/O on `NewClient`, injectable `http.RoundTripper`, and bounded concurrency semaphores.
