@@ -2,6 +2,8 @@ package aphotos
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -80,6 +82,60 @@ type VideoProperties struct {
 	AudioCodec string  `json:"audioCodec,omitempty"`
 	FrameRate  float64 `json:"frameRate,omitempty"`
 	Bitrate    int64   `json:"bitrate,omitempty"`
+}
+
+// UnmarshalJSON tolerates the numeric forms the service actually returns.
+// Amazon encodes bitrate as a JSON float (for example 22368.0) while the
+// documented shape is an integer; a plain int64 field rejects the whole node
+// and hides the video from every caller.
+func (vp *VideoProperties) UnmarshalJSON(data []byte) error {
+	type rawVP struct {
+		Width      int             `json:"width,omitempty"`
+		Height     int             `json:"height,omitempty"`
+		Duration   float64         `json:"duration,omitempty"`
+		VideoCodec string          `json:"videoCodec,omitempty"`
+		AudioCodec string          `json:"audioCodec,omitempty"`
+		FrameRate  float64         `json:"frameRate,omitempty"`
+		Bitrate    json.RawMessage `json:"bitrate,omitempty"`
+	}
+	var aux rawVP
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	bitrate, err := parseFlexInt64(aux.Bitrate)
+	if err != nil {
+		return err
+	}
+	vp.Width = aux.Width
+	vp.Height = aux.Height
+	vp.Duration = aux.Duration
+	vp.VideoCodec = aux.VideoCodec
+	vp.AudioCodec = aux.AudioCodec
+	vp.FrameRate = aux.FrameRate
+	vp.Bitrate = bitrate
+	return nil
+}
+
+// parseFlexInt64 accepts an integer, a quoted integer or an integral float. A
+// fractional value is truncated because the field is a rate, not a measurement
+// that callers compare for identity.
+func parseFlexInt64(raw json.RawMessage) (int64, error) {
+	if len(raw) == 0 {
+		return 0, nil
+	}
+	s := strings.TrimSpace(string(raw))
+	if s == "null" || s == `""` {
+		return 0, nil
+	}
+	s = strings.Trim(s, `"`)
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return v, nil
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid number %q: %w", string(raw), err)
+	}
+	return int64(f), nil
 }
 
 func (n *Node) UnmarshalJSON(data []byte) error {

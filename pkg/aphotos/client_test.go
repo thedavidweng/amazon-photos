@@ -3,6 +3,7 @@ package aphotos_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -1037,6 +1038,62 @@ func TestConcurrencySemaphore_BoundsInFlightRequests(t *testing.T) {
 
 	if got := maxObserved.Load(); got > maxConc {
 		t.Errorf("maxObserved concurrency = %d, exceeded MaxMetadataConcurrency %d", got, maxConc)
+	}
+}
+
+func TestNodeDecoding_AcceptsFloatVideoBitrate(t *testing.T) {
+	// Amazon returns video bitrate as a JSON float even though the documented
+	// shape is an integer. A plain int64 field rejected the whole node, so a
+	// video was invisible to every caller.
+	rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := `{"id":"vid1","name":"CLIP.MOV","kind":"FILE","status":"AVAILABLE","ownerId":"A1","parents":[],` +
+			`"contentProperties":{"size":5592,"md5":"4c7e72afb0b61cbae5a4e6c0b530c93e",` +
+			`"contentType":"video/mp4","video":{"width":96,"height":96,"duration":2.0,"videoCodec":"h264","bitrate":22368.0,"frameRate":10.0}}}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(bytes.NewBufferString(body)),
+			Request:    req,
+		}, nil
+	})
+	client := newTestUSClient(t, rt, 1)
+	node, err := client.GetNode(context.Background(), "vid1")
+	if err != nil {
+		t.Fatalf("GetNode failed on a float bitrate: %v", err)
+	}
+	if node.ContentProperties == nil || node.ContentProperties.Video == nil {
+		t.Fatal("video properties were dropped")
+	}
+	if got := node.ContentProperties.Video.Bitrate; got != 22368 {
+		t.Fatalf("Bitrate = %d, want 22368", got)
+	}
+	if node.ContentProperties.Size != 5592 || node.ContentProperties.MD5 != "4c7e72afb0b61cbae5a4e6c0b530c93e" {
+		t.Fatalf("content identity changed: %+v", node.ContentProperties)
+	}
+}
+
+func TestVideoBitrateAcceptsIntegerStringAndNull(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want int64
+	}{
+		{`{"bitrate":15000000}`, 15000000},
+		{`{"bitrate":"15000000"}`, 15000000},
+		{`{"bitrate":1.5e7}`, 15000000},
+		{`{"bitrate":null}`, 0},
+		{`{}`, 0},
+	} {
+		var vp aphotos.VideoProperties
+		if err := json.Unmarshal([]byte(tc.raw), &vp); err != nil {
+			t.Fatalf("%s: %v", tc.raw, err)
+		}
+		if vp.Bitrate != tc.want {
+			t.Fatalf("%s: Bitrate = %d, want %d", tc.raw, vp.Bitrate, tc.want)
+		}
+	}
+	var vp aphotos.VideoProperties
+	if err := json.Unmarshal([]byte(`{"bitrate":"loud"}`), &vp); err == nil {
+		t.Fatal("a non-numeric bitrate must still fail")
 	}
 }
 
