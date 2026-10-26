@@ -116,7 +116,7 @@ func paginateUnbounded(
 		}
 		p, pErr := fetchPage(ctx, currentOffset, pageLimit)
 		if pErr != nil {
-			warnings = appendDuplicateWarning(warnings, dupCount)
+			warnings = duplicateWarnings(dupCount)
 			warnings = append(warnings, fmt.Sprintf("pagination interrupted at offset %d: %s", currentOffset, Redact(pErr.Error())))
 			partial := &Page[Node]{
 				Items:        merged,
@@ -152,7 +152,7 @@ func paginateUnbounded(
 		hasMore = p.HasMore
 	}
 
-	warnings = appendDuplicateWarning(warnings, dupCount)
+	warnings = duplicateWarnings(dupCount)
 	return completePagination(endpoint, &Page[Node]{
 		Items:        merged,
 		TotalCount:   max(totalCount, len(merged)),
@@ -202,7 +202,7 @@ func paginateBounded9999(
 		stepLimit := min(pageLimit, MaxNodeOffsetWindow-currentOffset)
 		p, pErr := fetchPage(ctx, currentOffset, stepLimit)
 		if pErr != nil {
-			warnings = appendDuplicateWarning(warnings, dupCount)
+			warnings = duplicateWarnings(dupCount)
 			warnings = append(warnings, fmt.Sprintf("pagination interrupted at offset %d: %s", currentOffset, Redact(pErr.Error())))
 			partial := &Page[Node]{
 				Items:        merged,
@@ -239,7 +239,7 @@ func paginateBounded9999(
 		hasMore = p.HasMore
 	}
 
-	warnings = appendDuplicateWarning(warnings, dupCount)
+	warnings = duplicateWarnings(dupCount)
 
 	if totalCount > MaxNodeOffsetWindow || (hasMore && currentOffset >= MaxNodeOffsetWindow) {
 		truncMsg := fmt.Sprintf("result count %d exceeds %s offset+limit window %d; enable TimeWindowSubdivide to avoid truncation", totalCount, endpoint, MaxNodeOffsetWindow)
@@ -291,11 +291,11 @@ func completePagination(endpoint string, page *Page[Node]) (*Page[Node], error) 
 	return page, nil
 }
 
-func appendDuplicateWarning(warnings []string, dupCount int) []string {
+func duplicateWarnings(dupCount int) []string {
 	if dupCount > 0 {
-		return append(warnings, fmt.Sprintf("deduplicated %d duplicate node(s) across page boundaries", dupCount))
+		return []string{fmt.Sprintf("deduplicated %d duplicate node(s) across page boundaries", dupCount)}
 	}
-	return warnings
+	return nil
 }
 
 func appendUniqueNodes(dst *[]Node, src []Node, seen map[string]struct{}) int {
@@ -371,7 +371,7 @@ func subdivideByTimeWindows(
 
 		firstPage, err := fetchWithFilter(ctx, winFilter, 0, pageLimit)
 		if err != nil {
-			warnings = appendDuplicateWarning(warnings, dupCount)
+			warnings = duplicateWarnings(dupCount)
 			partial := &Page[Node]{
 				Items:      merged,
 				TotalCount: len(merged),
@@ -393,7 +393,7 @@ func subdivideByTimeWindows(
 			span := win.high.Sub(win.low)
 			if span <= time.Second {
 				truncMsg := fmt.Sprintf("single-second time window still exceeds %d nodes (count=%d)", MaxNodeOffsetWindow, firstPage.TotalCount)
-				warnings = appendDuplicateWarning(warnings, dupCount)
+				warnings = duplicateWarnings(dupCount)
 				warnings = append(warnings, truncMsg)
 				partial := &Page[Node]{
 					Items:                  merged,
@@ -431,7 +431,7 @@ func subdivideByTimeWindows(
 		})
 		if err != nil {
 			dupCount += appendUniqueNodes(&merged, winPage.Items, seen)
-			warnings = appendDuplicateWarning(warnings, dupCount)
+			warnings = duplicateWarnings(dupCount)
 			warnings = append(warnings, winPage.Warnings...)
 			partial := &Page[Node]{
 				Items:                  merged,
@@ -449,7 +449,7 @@ func subdivideByTimeWindows(
 		dupCount += appendUniqueNodes(&merged, winPage.Items, seen)
 	}
 
-	warnings = appendDuplicateWarning(warnings, dupCount)
+	warnings = duplicateWarnings(dupCount)
 	return &Page[Node]{
 		Items:      merged,
 		TotalCount: len(merged),
