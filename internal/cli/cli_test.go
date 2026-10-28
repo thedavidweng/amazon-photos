@@ -903,5 +903,4 @@ func TestDocumentationAndReleaseContractsSync(t *testing.T) {
 			}
 		}
 	})
-
 }
