@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -104,8 +105,7 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest) (*TransferRe
 			return lastResult, lastErr
 		}
 		var retryAfter time.Duration
-		var rlErr *RateLimitError
-		if errors.As(err, &rlErr) {
+		if rlErr, ok := errors.AsType[*RateLimitError](err); ok {
 			retryAfter = rlErr.RetryAfter
 		}
 		if wErr := c.waitRetry(ctx, attempt, retryAfter); wErr != nil {
@@ -459,7 +459,7 @@ func parseDispositionFileName(headerVal string) string {
 			return fnStar
 		}
 	}
-	for _, part := range strings.Split(h, ";") {
+	for part := range strings.SplitSeq(h, ";") {
 		kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
 		if len(kv) != 2 {
 			continue
@@ -498,8 +498,8 @@ func sanitizeSingleFileName(raw string) string {
 	}
 	parts := strings.Split(s, "/")
 	base := ""
-	for i := len(parts) - 1; i >= 0; i-- {
-		p := strings.TrimSpace(parts[i])
+	for _, part := range slices.Backward(parts) {
+		p := strings.TrimSpace(part)
 		if p != "" && p != "." && p != ".." {
 			base = p
 			break

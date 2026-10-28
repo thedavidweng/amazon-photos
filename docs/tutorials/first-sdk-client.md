@@ -4,7 +4,7 @@ This tutorial walks you through creating a small Go program that uses `github.co
 
 ## Prerequisites
 
-- Go 1.26 or later.
+- Go 1.27.3 or later.
 - Amazon Photos session cookies set in environment variables (`APHOTOS_SESSION_ID`, `APHOTOS_UBID`, `APHOTOS_AT`).
 
 ## 1. Initialize a Go Module

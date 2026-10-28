@@ -301,20 +301,16 @@ func runDoctorChecks(ctx context.Context, app *AppContext, writeProbe, allowUnco
 }
 
 func diagnosticHintForError(err error) string {
-	var authErr *aphotos.AuthenticationError
-	if errors.As(err, &authErr) {
+	if _, ok := errors.AsType[*aphotos.AuthenticationError](err); ok {
 		return "Session cookies were rejected (HTTP 401). Export fresh cookies from an active browser session and run 'aphotos auth import <cookie-file>'."
 	}
-	var permErr *aphotos.PermissionError
-	if errors.As(err, &permErr) {
+	if _, ok := errors.AsType[*aphotos.PermissionError](err); ok {
 		return "Access denied (HTTP 403). Verify that your account has access to the configured Amazon marketplace region."
 	}
-	var rlErr *aphotos.RateLimitError
-	if errors.As(err, &rlErr) {
+	if _, ok := errors.AsType[*aphotos.RateLimitError](err); ok {
 		return "Rate limited by Amazon Photos (HTTP 429). Wait for the Retry-After window and reduce concurrent requests."
 	}
-	var protoErr *aphotos.RemoteProtocolError
-	if errors.As(err, &protoErr) {
+	if _, ok := errors.AsType[*aphotos.RemoteProtocolError](err); ok {
 		return "Unexpected response shape from the unofficial Amazon Photos Web API; the remote endpoint contract may have changed."
 	}
 	return ""

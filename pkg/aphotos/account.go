@@ -147,8 +147,7 @@ func (c *Client) GetNode(ctx context.Context, nodeID string) (*Node, error) {
 	path := fmt.Sprintf("/nodes/%s", url.PathEscape(trimmedID))
 	var node Node
 	if err := c.doReadJSON(ctx, path, baseQueryParams(), &node); err != nil {
-		var nfErr *NotFoundError
-		if errors.As(err, &nfErr) {
+		if nfErr, ok := errors.AsType[*NotFoundError](err); ok {
 			nfErr.NodeID = trimmedID
 		}
 		return nil, err

@@ -171,8 +171,7 @@ func TestFilterBuilder_BuildAndEscaping(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected error for %s, got nil", tc.name)
 				}
-				var filterErr *aphotos.InvalidFilterError
-				if !errors.As(err, &filterErr) {
+				if _, ok := errors.AsType[*aphotos.InvalidFilterError](err); !ok {
 					t.Fatalf("expected *InvalidFilterError for %s, got %T (%v)", tc.name, err, err)
 				}
 			})
@@ -325,8 +324,7 @@ func TestGetAggregations_AllAndSingleCategoryShapes(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for unsupported category 'dates', got nil")
 		}
-		var filterErr *aphotos.InvalidFilterError
-		if !errors.As(err, &filterErr) {
+		if _, ok := errors.AsType[*aphotos.InvalidFilterError](err); !ok {
 			t.Fatalf("expected *InvalidFilterError, got %T (%v)", err, err)
 		}
 	})
@@ -448,8 +446,7 @@ func TestQueryNodes_AndListChildren_SinglePageContract(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected InvalidFilterError when offset + limit > 9999, got nil")
 		}
-		var invErr *aphotos.InvalidFilterError
-		if !errors.As(err, &invErr) {
+		if _, ok := errors.AsType[*aphotos.InvalidFilterError](err); !ok {
 			t.Fatalf("expected *InvalidFilterError, got %T (%v)", err, err)
 		}
 	})
@@ -613,8 +610,7 @@ func TestPagination_MultiPageDeduplicationAndNoDuplicateOffsetZero(t *testing.T)
 		if err == nil {
 			t.Fatal("expected PartialResultError when TotalCount > 9999 without TimeWindowSubdivide, got nil")
 		}
-		var partialErr *aphotos.PartialResultError
-		if !errors.As(err, &partialErr) {
+		if _, ok := errors.AsType[*aphotos.PartialResultError](err); !ok {
 			t.Fatalf("expected *PartialResultError, got %T (%v)", err, err)
 		}
 		if page == nil {
@@ -765,8 +761,7 @@ func TestPagination_IteratorsAndPartialFailure(t *testing.T) {
 		if !errors.As(err, &partialErr) {
 			t.Fatalf("expected *PartialResultError, got %T (%v)", err, err)
 		}
-		var permErr *aphotos.PermissionError
-		if !errors.As(err, &permErr) {
+		if _, ok := errors.AsType[*aphotos.PermissionError](err); !ok {
 			t.Fatalf("expected wrapped *PermissionError cause, got %v", errors.Unwrap(partialErr))
 		}
 		if page == nil || page.Complete || !page.HasMore || len(page.Items) != 2 {

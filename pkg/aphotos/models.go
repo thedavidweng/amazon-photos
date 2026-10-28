@@ -54,7 +54,7 @@ type ContentProperties struct {
 	MD5         string           `json:"md5,omitempty"`
 	ContentType string           `json:"contentType,omitempty"`
 	Extension   string           `json:"extension,omitempty"`
-	ContentDate time.Time        `json:"contentDate,omitempty"`
+	ContentDate time.Time        `json:"contentDate"`
 	Image       *ImageProperties `json:"image,omitempty"`
 	Video       *VideoProperties `json:"video,omitempty"`
 }
@@ -68,9 +68,9 @@ type ImageProperties struct {
 	ApertureValue     string    `json:"apertureValue,omitempty"`
 	FocalLength       string    `json:"focalLength,omitempty"`
 	ExposureTime      string    `json:"exposureTime,omitempty"`
-	DateTime          time.Time `json:"dateTime,omitempty"`
-	DateTimeOriginal  time.Time `json:"dateTimeOriginal,omitempty"`
-	DateTimeDigitized time.Time `json:"dateTimeDigitized,omitempty"`
+	DateTime          time.Time `json:"dateTime"`
+	DateTimeOriginal  time.Time `json:"dateTimeOriginal"`
+	DateTimeDigitized time.Time `json:"dateTimeDigitized"`
 	Location          string    `json:"location,omitempty"`
 }
 

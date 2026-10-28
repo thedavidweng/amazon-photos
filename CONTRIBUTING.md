@@ -9,7 +9,7 @@ mise install
 mise run check
 ```
 
-Requires Go 1.26 or later.
+Requires Go 1.27.3 or later.
 
 ## Development Workflow
 

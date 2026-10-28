@@ -372,8 +372,7 @@ func (c *Client) handleConflictSkip(
 ) (*TransferResult, error) {
 	verifiedNode, verifyErr := c.findConflictingRemoteNode(ctx, name, parentID, failedRes.MD5, conflictErr)
 	if verifyErr != nil {
-		var unconfErr *PartialResultError
-		if errors.As(verifyErr, &unconfErr) {
+		if _, ok := errors.AsType[*PartialResultError](verifyErr); ok {
 			return &TransferResult{
 				Status:       TransferUnconfirmed,
 				Name:         name,
