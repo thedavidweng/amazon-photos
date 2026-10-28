@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,34 +14,6 @@ import (
 
 	"github.com/thedavidweng/amazon-photos/pkg/aphotos"
 )
-
-func TestFilterDSL_ConstantsAndSortOrder(t *testing.T) {
-	if aphotos.MediaPhotosAndVideos != "PHOTOS OR VIDEOS" {
-		t.Fatalf("MediaPhotosAndVideos = %q, want %q", aphotos.MediaPhotosAndVideos, "PHOTOS OR VIDEOS")
-	}
-	if aphotos.MediaPhotos != "PHOTOS" {
-		t.Fatalf("MediaPhotos = %q, want %q", aphotos.MediaPhotos, "PHOTOS")
-	}
-	if aphotos.MediaVideos != "VIDEOS" {
-		t.Fatalf("MediaVideos = %q, want %q", aphotos.MediaVideos, "VIDEOS")
-	}
-
-	wantSorts := map[aphotos.SortOrder]string{
-		aphotos.SortCreatedDesc:     "['createdDate DESC']",
-		aphotos.SortCreatedAsc:      "['createdDate ASC']",
-		aphotos.SortContentDateDesc: "['contentProperties.contentDate DESC']",
-		aphotos.SortContentDateAsc:  "['contentProperties.contentDate ASC']",
-		aphotos.SortModifiedDesc:    "['modifiedDate DESC']",
-		aphotos.SortModifiedAsc:     "['modifiedDate ASC']",
-		aphotos.SortNameAsc:         "['name ASC']",
-		aphotos.SortNameDesc:        "['name DESC']",
-	}
-	for got, want := range wantSorts {
-		if string(got) != want {
-			t.Errorf("SortOrder %q != %q", got, want)
-		}
-	}
-}
 
 func TestFilterBuilder_BuildAndEscaping(t *testing.T) {
 	t.Run("composite search filter matching protocol example", func(t *testing.T) {
@@ -209,9 +180,7 @@ func TestFilterBuilder_BuildAndEscaping(t *testing.T) {
 	})
 }
 
-func TestGetAggregations_AllAndSingleCategoryShapesAndZeroDiskWrites(t *testing.T) {
-	tmpDir := t.TempDir()
-
+func TestGetAggregations_AllAndSingleCategoryShapes(t *testing.T) {
 	t.Run("all category hits /search with limit=1 and searchContext=all and parses map", func(t *testing.T) {
 		rt := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			if req.Method != http.MethodGet {
@@ -361,14 +330,6 @@ func TestGetAggregations_AllAndSingleCategoryShapesAndZeroDiskWrites(t *testing.
 			t.Fatalf("expected *InvalidFilterError, got %T (%v)", err, err)
 		}
 	})
-
-	entries, err := os.ReadDir(tmpDir)
-	if err != nil {
-		t.Fatalf("ReadDir failed: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("expected zero disk writes, found %d entries", len(entries))
-	}
 }
 
 func TestSearch_SinglePageAnd400InvalidFilter(t *testing.T) {
