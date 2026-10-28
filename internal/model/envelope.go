@@ -166,8 +166,7 @@ func FromError(err error) *CommandError {
 		return nil
 	}
 
-	var existing *CommandError
-	if errors.As(err, &existing) {
+	if existing, ok := errors.AsType[*CommandError](err); ok {
 		if existing.Body.Code == "" {
 			existing.Body.Code = existing.Code
 		}
@@ -187,8 +186,7 @@ func FromError(err error) *CommandError {
 		return NewCommandError(ErrNetworkError, aphotos.Redact(err.Error()))
 	}
 
-	var cfgErr *aphotos.ConfigError
-	if errors.As(err, &cfgErr) {
+	if cfgErr, ok := errors.AsType[*aphotos.ConfigError](err); ok {
 		var details map[string]any
 		if cfgErr.Field != "" {
 			details = map[string]any{"field": aphotos.Redact(cfgErr.Field)}
@@ -198,24 +196,21 @@ func FromError(err error) *CommandError {
 		return ce
 	}
 
-	var authErr *aphotos.AuthenticationError
-	if errors.As(err, &authErr) {
+	if authErr, ok := errors.AsType[*aphotos.AuthenticationError](err); ok {
 		details := httpDetails(authErr.Endpoint, authErr.StatusCode, authErr.RequestID)
 		ce := NewCommandErrorWithDetails(ErrAuthFailed, authErr.Error(), details)
 		ce.Cause = err
 		return ce
 	}
 
-	var permErr *aphotos.PermissionError
-	if errors.As(err, &permErr) {
+	if permErr, ok := errors.AsType[*aphotos.PermissionError](err); ok {
 		details := httpDetails(permErr.Endpoint, permErr.StatusCode, permErr.RequestID)
 		ce := NewCommandErrorWithDetails(ErrPermissionDenied, permErr.Error(), details)
 		ce.Cause = err
 		return ce
 	}
 
-	var rlErr *aphotos.RateLimitError
-	if errors.As(err, &rlErr) {
+	if rlErr, ok := errors.AsType[*aphotos.RateLimitError](err); ok {
 		details := httpDetails(rlErr.Endpoint, rlErr.StatusCode, rlErr.RequestID)
 		ce := NewCommandErrorWithDetails(ErrRateLimited, rlErr.Error(), details)
 		if rlErr.RetryAfter > 0 {
@@ -225,8 +220,7 @@ func FromError(err error) *CommandError {
 		return ce
 	}
 
-	var filterErr *aphotos.InvalidFilterError
-	if errors.As(err, &filterErr) {
+	if filterErr, ok := errors.AsType[*aphotos.InvalidFilterError](err); ok {
 		details := httpDetails(filterErr.Endpoint, filterErr.StatusCode, filterErr.RequestID)
 		if filterErr.Filter != "" {
 			if details == nil {
@@ -239,8 +233,7 @@ func FromError(err error) *CommandError {
 		return ce
 	}
 
-	var nfErr *aphotos.NotFoundError
-	if errors.As(err, &nfErr) {
+	if nfErr, ok := errors.AsType[*aphotos.NotFoundError](err); ok {
 		details := httpDetails(nfErr.Endpoint, nfErr.StatusCode, nfErr.RequestID)
 		if nfErr.NodeID != "" {
 			if details == nil {
@@ -253,8 +246,7 @@ func FromError(err error) *CommandError {
 		return ce
 	}
 
-	var conflictErr *aphotos.ConflictError
-	if errors.As(err, &conflictErr) {
+	if conflictErr, ok := errors.AsType[*aphotos.ConflictError](err); ok {
 		details := httpDetails(conflictErr.Endpoint, conflictErr.StatusCode, conflictErr.RequestID)
 		if conflictErr.ConflictingNodeID != "" {
 			if details == nil {
@@ -267,24 +259,21 @@ func FromError(err error) *CommandError {
 		return ce
 	}
 
-	var netErr *aphotos.TransientNetworkError
-	if errors.As(err, &netErr) {
+	if netErr, ok := errors.AsType[*aphotos.TransientNetworkError](err); ok {
 		details := httpDetails(netErr.Endpoint, netErr.StatusCode, netErr.RequestID)
 		ce := NewCommandErrorWithDetails(ErrNetworkError, netErr.Error(), details)
 		ce.Cause = err
 		return ce
 	}
 
-	var protoErr *aphotos.RemoteProtocolError
-	if errors.As(err, &protoErr) {
+	if protoErr, ok := errors.AsType[*aphotos.RemoteProtocolError](err); ok {
 		details := httpDetails(protoErr.Endpoint, protoErr.StatusCode, protoErr.RequestID)
 		ce := NewCommandErrorWithDetails(ErrRemoteProtocolError, protoErr.Error(), details)
 		ce.Cause = err
 		return ce
 	}
 
-	var partialErr *aphotos.PartialResultError
-	if errors.As(err, &partialErr) {
+	if partialErr, ok := errors.AsType[*aphotos.PartialResultError](err); ok {
 		var details map[string]any
 		if partialErr.Endpoint != "" {
 			details = map[string]any{"endpoint": aphotos.Redact(partialErr.Endpoint)}
@@ -304,8 +293,7 @@ func FromError(err error) *CommandError {
 		return ce
 	}
 
-	var pathErr *fs.PathError
-	if errors.As(err, &pathErr) {
+	if _, ok := errors.AsType[*fs.PathError](err); ok {
 		ce := NewCommandError(ErrFilesystemError, err.Error())
 		ce.Cause = err
 		return ce

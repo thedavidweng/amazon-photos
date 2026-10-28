@@ -4,7 +4,7 @@
   <a href="https://github.com/thedavidweng/amazon-photos/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/thedavidweng/amazon-photos/ci.yml?branch=main&style=flat-square&label=ci" alt="CI"></a>
   <a href="https://github.com/thedavidweng/amazon-photos/releases"><img src="https://img.shields.io/github/v/release/thedavidweng/amazon-photos?style=flat-square" alt="Release"></a>
   <a href="https://github.com/thedavidweng/amazon-photos/blob/main/LICENSE"><img src="https://img.shields.io/github/license/thedavidweng/amazon-photos?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/go-%3E%3D1.26-blue?style=flat-square" alt="Go">
+  <img src="https://img.shields.io/badge/go-%3E%3D1.27.3-blue?style=flat-square" alt="Go">
 </p>
 
 > **Disclaimer**: Unofficial client; not affiliated with, endorsed by, or sponsored by Amazon.com, Inc.

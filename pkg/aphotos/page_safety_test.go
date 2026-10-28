@@ -137,8 +137,7 @@ func TestAllNodePagesRejectCountTruncation(t *testing.T) {
 						}
 						return
 					}
-					var partialErr *aphotos.PartialResultError
-					if !errors.As(err, &partialErr) {
+					if _, ok := errors.AsType[*aphotos.PartialResultError](err); !ok {
 						t.Fatalf("expected PartialResultError, got page=%+v err=%v", page, err)
 					}
 					if page == nil || page.Complete || !page.HasMore || len(page.Items) != tc.items || page.TotalCount != tc.total {

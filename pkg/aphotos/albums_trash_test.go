@@ -635,8 +635,7 @@ func TestTrash_ListAndMultiPage(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected PartialResultError when total count > 9999, got nil")
 		}
-		var partialErr *aphotos.PartialResultError
-		if !errors.As(err, &partialErr) {
+		if _, ok := errors.AsType[*aphotos.PartialResultError](err); !ok {
 			t.Fatalf("expected *aphotos.PartialResultError, got %T (%v)", err, err)
 		}
 		if len(nodes) != 9999 {
@@ -803,8 +802,7 @@ func TestAlbumsSettingsTrash_ValidationAndPartialFailures(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error on second node, got nil")
 		}
-		var nfErr *aphotos.NotFoundError
-		if !errors.As(err, &nfErr) {
+		if _, ok := errors.AsType[*aphotos.NotFoundError](err); !ok {
 			t.Fatalf("expected *aphotos.NotFoundError, got %T (%v)", err, err)
 		}
 		if len(nodes) != 1 || nodes[0].ID != "n-1" {

@@ -771,8 +771,7 @@ func TestTypedErrors_401FailsImmediatelyAndOtherStatusMappings(t *testing.T) {
 			Message:  "stopped after 200 items",
 			Cause:    cause,
 		}
-		var rlErr *aphotos.RateLimitError
-		if !errors.As(partial, &rlErr) {
+		if _, ok := errors.AsType[*aphotos.RateLimitError](partial); !ok {
 			t.Fatalf("expected PartialResultError to unwrap to RateLimitError")
 		}
 		if partial.Error() == "" {
@@ -933,8 +932,7 @@ func TestRetryEngine_429RetryAfterAndBudgetExhaustion(t *testing.T) {
 		if got := attempts.Load(); got != 2 {
 			t.Errorf("attempts = %d, want 2", got)
 		}
-		var netErr *aphotos.TransientNetworkError
-		if !errors.As(err, &netErr) {
+		if _, ok := errors.AsType[*aphotos.TransientNetworkError](err); !ok {
 			t.Fatalf("expected *TransientNetworkError, got %T (%v)", err, err)
 		}
 	})
@@ -1026,13 +1024,11 @@ func TestConcurrencySemaphore_BoundsInFlightRequests(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 6 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if _, err := client.GetRoot(context.Background()); err != nil {
 				t.Errorf("GetRoot failed: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -1201,8 +1197,7 @@ func TestMutateJSON_DoesNotBlindlyReplayOnNetworkOr5xxFailure(t *testing.T) {
 	if got := attempts.Load(); got != 1 {
 		t.Fatalf("non-idempotent POST must not be blindly replayed on 502; attempts = %d, want 1", got)
 	}
-	var netErr *aphotos.TransientNetworkError
-	if !errors.As(err, &netErr) {
+	if _, ok := errors.AsType[*aphotos.TransientNetworkError](err); !ok {
 		t.Fatalf("expected *TransientNetworkError, got %T (%v)", err, err)
 	}
 }
@@ -1228,13 +1223,11 @@ func TestGetNodePreservesReadErrors(t *testing.T) {
 			}
 			switch status {
 			case 401:
-				var e *aphotos.AuthenticationError
-				if !errors.As(err, &e) {
+				if _, ok := errors.AsType[*aphotos.AuthenticationError](err); !ok {
 					t.Fatal(err)
 				}
 			case 403:
-				var e *aphotos.PermissionError
-				if !errors.As(err, &e) {
+				if _, ok := errors.AsType[*aphotos.PermissionError](err); !ok {
 					t.Fatal(err)
 				}
 			case 404:
@@ -1243,8 +1236,7 @@ func TestGetNodePreservesReadErrors(t *testing.T) {
 					t.Fatal(err)
 				}
 			case 429:
-				var e *aphotos.RateLimitError
-				if !errors.As(err, &e) {
+				if _, ok := errors.AsType[*aphotos.RateLimitError](err); !ok {
 					t.Fatal(err)
 				}
 			}

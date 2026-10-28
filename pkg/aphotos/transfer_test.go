@@ -52,10 +52,7 @@ func (s *syntheticStream) Read(p []byte) (int, error) {
 	if s.remaining <= 0 {
 		return 0, io.EOF
 	}
-	n := int64(len(p))
-	if n > s.remaining {
-		n = s.remaining
-	}
+	n := min(int64(len(p)), s.remaining)
 	for i := range n {
 		p[i] = s.pattern
 	}
@@ -236,8 +233,7 @@ func TestUpload_201WithoutNodeIDReturnsUnconfirmed(t *testing.T) {
 	if res.Status != aphotos.TransferUnconfirmed {
 		t.Fatalf("Status = %q, want %q", res.Status, aphotos.TransferUnconfirmed)
 	}
-	var partialErr *aphotos.PartialResultError
-	if !errors.As(err, &partialErr) {
+	if _, ok := errors.AsType[*aphotos.PartialResultError](err); !ok {
 		t.Fatalf("expected *PartialResultError on unconfirmed 201, got %T: %v", err, err)
 	}
 }
@@ -446,8 +442,7 @@ func TestUpload_ConflictPolicies(t *testing.T) {
 			Body:           nonSeek,
 			ConflictPolicy: aphotos.ConflictRename,
 		})
-		var conflictErr *aphotos.ConflictError
-		if !errors.As(err, &conflictErr) {
+		if _, ok := errors.AsType[*aphotos.ConflictError](err); !ok {
 			t.Fatalf("expected *ConflictError when reader cannot be replayed, got %T: %v", err, err)
 		}
 		if res == nil || res.Status != aphotos.TransferFailed {
@@ -483,8 +478,7 @@ func TestUpload_ConflictSkipFailsWhenUnverified(t *testing.T) {
 			Body:           strings.NewReader("ghost-data"),
 			ConflictPolicy: aphotos.ConflictSkip,
 		})
-		var conflictErr *aphotos.ConflictError
-		if !errors.As(err, &conflictErr) {
+		if _, ok := errors.AsType[*aphotos.ConflictError](err); !ok {
 			t.Fatalf("expected *ConflictError when 409 has no node ID and remote query finds nothing, got %T: %v", err, err)
 		}
 		if res == nil || res.Status != aphotos.TransferFailed {
@@ -521,8 +515,7 @@ func TestUpload_ConflictSkipFailsWhenUnverified(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error when remote node lacks MD5, got nil")
 		}
-		var partialErr *aphotos.PartialResultError
-		if !errors.As(err, &partialErr) {
+		if _, ok := errors.AsType[*aphotos.PartialResultError](err); !ok {
 			t.Fatalf("expected *PartialResultError when remote node lacks MD5, got %T: %v", err, err)
 		}
 		if res == nil || res.Status != aphotos.TransferUnconfirmed {
@@ -817,8 +810,7 @@ func TestDownload_VerificationFailuresAndCleanup(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error on ExpectedMD5 mismatch, got nil")
 		}
-		var protoErr *aphotos.RemoteProtocolError
-		if !errors.As(err, &protoErr) {
+		if _, ok := errors.AsType[*aphotos.RemoteProtocolError](err); !ok {
 			t.Fatalf("expected *RemoteProtocolError on MD5 mismatch, got %T: %v", err, err)
 		}
 		if res == nil || res.Status != aphotos.TransferFailed {
@@ -939,8 +931,7 @@ func TestUploadBatch_DirectoryWalkDryRunAndErrorPropagation(t *testing.T) {
 			ContinueOnError: true,
 			Concurrency:     2,
 		})
-		var partialErr *aphotos.PartialResultError
-		if !errors.As(err, &partialErr) {
+		if _, ok := errors.AsType[*aphotos.PartialResultError](err); !ok {
 			t.Fatalf("expected *PartialResultError, got %T: %v", err, err)
 		}
 		if len(results) != 3 {
@@ -995,8 +986,7 @@ func TestUploadBatch_DirectoryWalkDryRunAndErrorPropagation(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatal("UploadBatch deadlocked on worker failure")
 		}
-		var authErr *aphotos.AuthenticationError
-		if !errors.As(batchErr, &authErr) {
+		if _, ok := errors.AsType[*aphotos.AuthenticationError](batchErr); !ok {
 			t.Fatalf("expected *AuthenticationError, got %T: %v", batchErr, batchErr)
 		}
 	})
@@ -1011,7 +1001,7 @@ func TestDownloadBatch_ConcurrentNodeOwnersWithoutRootOwner(t *testing.T) {
 		if req.URL.Path == "/drive/v1/nodes" {
 			return jsonResponse(req, http.StatusOK, `{"data":[{"id":"ROOT","kind":"FOLDER","isRoot":true}]}`), nil
 		}
-		nodeID := strings.Split(strings.TrimPrefix(req.URL.Path, "/drive/v1/nodes/"), "/")[0]
+		nodeID, _, _ := strings.Cut(strings.TrimPrefix(req.URL.Path, "/drive/v1/nodes/"), "/")
 		if nodeID != "NODE_A" && nodeID != "NODE_B" {
 			return nil, fmt.Errorf("unexpected request: %s", req.URL.Path)
 		}
@@ -1087,8 +1077,7 @@ func TestDownloadBatch_PartialAndSuccess(t *testing.T) {
 		ContinueOnError: true,
 		Concurrency:     2,
 	})
-	var partialErr *aphotos.PartialResultError
-	if !errors.As(err, &partialErr) {
+	if _, ok := errors.AsType[*aphotos.PartialResultError](err); !ok {
 		t.Fatalf("expected *PartialResultError, got %T: %v", err, err)
 	}
 	if len(results) != 2 {
@@ -1213,8 +1202,7 @@ func TestDownload_LocalConflictPoliciesAndConcurrentSafety(t *testing.T) {
 			DestDir:     destDir,
 			ExpectedMD5: payloadMD5,
 		})
-		var conflictErr *aphotos.ConflictError
-		if !errors.As(err, &conflictErr) {
+		if _, ok := errors.AsType[*aphotos.ConflictError](err); !ok {
 			t.Fatalf("expected *ConflictError when destination file exists, got %T: %v", err, err)
 		}
 		if res == nil || res.Status != aphotos.TransferFailed {
@@ -1376,8 +1364,7 @@ func TestDownloadBatch_MetadataVerificationAndMissingMD5Warning(t *testing.T) {
 		ContinueOnError: true,
 		Concurrency:     2,
 	})
-	var partialErr *aphotos.PartialResultError
-	if !errors.As(err, &partialErr) {
+	if _, ok := errors.AsType[*aphotos.PartialResultError](err); !ok {
 		t.Fatalf("expected *PartialResultError when one item fails MD5 verification, got %T: %v", err, err)
 	}
 	if len(results) != 3 {

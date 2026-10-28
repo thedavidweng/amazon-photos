@@ -46,8 +46,7 @@ func execCLI(t *testing.T, rt http.RoundTripper, args ...string) (stdout, stderr
 	err = cmd.Execute()
 	exitCode = 0
 	if err != nil {
-		var cmdErr *model.CommandError
-		if errors.As(err, &cmdErr) {
+		if cmdErr, ok := errors.AsType[*model.CommandError](err); ok {
 			exitCode = cmdErr.ExitCode()
 		} else {
 			exitCode = 1

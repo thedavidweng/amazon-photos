@@ -311,9 +311,7 @@ func runBatchWorkers(
 	var wg sync.WaitGroup
 
 	for range workerCount {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				idx := int(nextIdx.Add(1) - 1)
 				if idx >= totalItems {
@@ -335,7 +333,7 @@ func runBatchWorkers(
 					cancel()
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

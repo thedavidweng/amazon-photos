@@ -17,7 +17,7 @@ brew tap thedavidweng/homebrew-tap
 brew install aphotos
 ```
 
-Or install directly with Go 1.26+:
+Or install directly with Go 1.27.3+:
 
 ```sh
 go install github.com/thedavidweng/amazon-photos/cmd/aphotos@latest

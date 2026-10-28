@@ -10,8 +10,7 @@ import (
 
 func main() {
 	if err := cli.Execute(); err != nil {
-		var cmdErr *model.CommandError
-		if errors.As(err, &cmdErr) {
+		if cmdErr, ok := errors.AsType[*model.CommandError](err); ok {
 			os.Exit(cmdErr.ExitCode())
 		}
 		os.Exit(1)
