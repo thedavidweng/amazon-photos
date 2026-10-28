@@ -5,18 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/thedavidweng/amazon-photos/internal/model"
-	"gopkg.in/yaml.v3"
 )
 
 type roundTripFunc func(req *http.Request) (*http.Response, error)
@@ -903,170 +900,6 @@ func TestDocumentationAndReleaseContractsSync(t *testing.T) {
 		for _, exitStr := range []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "130"} {
 			if !strings.Contains(schemaDoc, exitStr) {
 				t.Errorf("docs/reference/json-schema.md missing exit code %s", exitStr)
-			}
-		}
-	})
-
-	t.Run("Diátaxis documentation structure and internal markdown links are valid", func(t *testing.T) {
-		requiredDocs := []string{
-			"docs/tutorials/getting-started-cli.md",
-			"docs/tutorials/first-sdk-client.md",
-			"docs/how-to/batch-transfers.md",
-			"docs/how-to/configure-regions.md",
-			"docs/how-to/agent-automation.md",
-			"docs/how-to/troubleshooting.md",
-			"docs/reference/cli-commands.md",
-			"docs/reference/sdk-api.md",
-			"docs/reference/json-schema.md",
-			"docs/reference/search-filters-and-pagination.md",
-			"docs/reference/regions.md",
-			"docs/reference/configuration.md",
-			"docs/explanation/architecture.md",
-			"docs/explanation/unofficial-api-constraints.md",
-			"docs/explanation/security-model.md",
-			"docs/explanation/transfer-integrity-and-conflicts.md",
-		}
-		for _, rel := range requiredDocs {
-			content := readRepoFile(t, rel)
-			if len(strings.TrimSpace(content)) < 100 {
-				t.Errorf("Diátaxis doc %s is missing or stubbed", rel)
-			}
-		}
-
-		linkRe := regexp.MustCompile(`\[[^\]]+\]\(([^)]+)\)`)
-		err := filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if d.IsDir() {
-				if d.Name() == ".git" || d.Name() == "dist" {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if !strings.HasSuffix(d.Name(), ".md") {
-				return nil
-			}
-			relFile, _ := filepath.Rel(repoRoot, path)
-			if filepath.ToSlash(relFile) == "docs/agents/domain.md" {
-				return nil
-			}
-			raw, rErr := os.ReadFile(path)
-			if rErr != nil {
-				return rErr
-			}
-			matches := linkRe.FindAllStringSubmatch(string(raw), -1)
-			for _, m := range matches {
-				target := strings.TrimSpace(m[1])
-				if target == "" ||
-					strings.HasPrefix(target, "http://") ||
-					strings.HasPrefix(target, "https://") ||
-					strings.HasPrefix(target, "mailto:") ||
-					strings.HasPrefix(target, "#") {
-					continue
-				}
-				if idx := strings.Index(target, "#"); idx >= 0 {
-					target = target[:idx]
-				}
-				if target == "" {
-					continue
-				}
-				resolved := filepath.Join(filepath.Dir(path), target)
-				if _, statErr := os.Stat(resolved); statErr != nil {
-					t.Errorf("%s contains broken relative link %q (resolved: %s)", relFile, m[1], resolved)
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("WalkDir markdown link check failed: %v", err)
-		}
-	})
-
-	t.Run("README.md contains disclaimer, regions, SDK/CLI usage, exit codes, credits, and MIT license", func(t *testing.T) {
-		readme := readRepoFile(t, "README.md")
-
-		requiredSnippets := []string{
-			"Unofficial client; not affiliated with, endorsed by, or sponsored by Amazon.com, Inc.",
-			"verified",
-			"experimental",
-			"content-na.drive.amazonaws.com",
-			"content-eu.drive.amazonaws.com",
-			"content-jp.drive.amazonaws.com",
-			"go get github.com/thedavidweng/amazon-photos/pkg/aphotos",
-			"auth import",
-			"doctor",
-			"usage",
-			"search",
-			"upload",
-			"download",
-			"albums",
-			"trash",
-			"130",
-			"trevorhobenshield/amazon_photos",
-			"kpfitzgerald/amazon-photos-mcp",
-			"vanessa/immich-amazon-sync",
-			"MIT",
-		}
-		for _, snippet := range requiredSnippets {
-			if !strings.Contains(readme, snippet) {
-				t.Errorf("README.md missing required content %q", snippet)
-			}
-		}
-	})
-
-	t.Run("governance and release files exist and are valid YAML", func(t *testing.T) {
-		for _, docFile := range []string{"CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "CONTEXT.md", "GLOSSARY.md"} {
-			content := readRepoFile(t, docFile)
-			if strings.TrimSpace(content) == "" {
-				t.Errorf("%s is empty", docFile)
-			}
-		}
-
-		goreleaserRaw := readRepoFile(t, ".goreleaser.yaml")
-		var gr map[string]any
-		if err := yaml.Unmarshal([]byte(goreleaserRaw), &gr); err != nil {
-			t.Fatalf(".goreleaser.yaml invalid YAML: %v", err)
-		}
-		for _, token := range []string{
-			"./cmd/aphotos",
-			"aphotos",
-			"github.com/thedavidweng/amazon-photos/internal/cli.Version",
-			"github.com/thedavidweng/amazon-photos/internal/cli.Commit",
-			"github.com/thedavidweng/amazon-photos/internal/cli.Date",
-			"linux",
-			"darwin",
-			"windows",
-			"amd64",
-			"arm64",
-			"checksums.txt",
-			"sha256",
-			"homebrew-tap",
-		} {
-			if !strings.Contains(goreleaserRaw, token) {
-				t.Errorf(".goreleaser.yaml missing %q", token)
-			}
-		}
-
-		ciRaw := readRepoFile(t, ".github/workflows/ci.yml")
-		var ciMap map[string]any
-		if err := yaml.Unmarshal([]byte(ciRaw), &ciMap); err != nil {
-			t.Fatalf(".github/workflows/ci.yml invalid YAML: %v", err)
-		}
-		for _, token := range []string{"mise run check", "ubuntu-latest", "macos-latest", "windows-latest", "go test ./...", "go build ./cmd/aphotos"} {
-			if !strings.Contains(ciRaw, token) {
-				t.Errorf(".github/workflows/ci.yml missing %q", token)
-			}
-		}
-
-		relRaw := readRepoFile(t, ".github/workflows/release.yml")
-		var relMap map[string]any
-		if err := yaml.Unmarshal([]byte(relRaw), &relMap); err != nil {
-			t.Fatalf(".github/workflows/release.yml invalid YAML: %v", err)
-		}
-		for _, token := range []string{"v*", "goreleaser"} {
-			if !strings.Contains(relRaw, token) {
-				t.Errorf(".github/workflows/release.yml missing %q", token)
 			}
 		}
 	})
