@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/thedavidweng/amazon-photos/internal/model"
 )
 
@@ -800,4 +802,106 @@ func TestUploadConflictPoliciesSkipAndRenameE2E(t *testing.T) {
 			t.Errorf("unexpected uploaded names: %v", uploadedNames)
 		}
 	})
+}
+
+func TestDocumentationAndReleaseContractsSync(t *testing.T) {
+	repoRoot := filepath.Join("..", "..")
+
+	readRepoFile := func(t *testing.T, rel string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(repoRoot, rel))
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", rel, err)
+		}
+		return string(data)
+	}
+
+	t.Run("docs/reference/cli-commands.md documents every command and flag and contentDate vs createdDate", func(t *testing.T) {
+		commandsDoc := readRepoFile(t, filepath.Join("docs", "reference", "cli-commands.md"))
+
+		if !strings.Contains(commandsDoc, "contentDate") || !strings.Contains(commandsDoc, "createdDate") {
+			t.Errorf("docs/reference/cli-commands.md must document contentDate (capture date) vs createdDate (upload date)")
+		}
+
+		root := NewRootCommand(RootOptions{})
+		var walk func(cmd *cobra.Command, prefix string)
+		walk = func(cmd *cobra.Command, prefix string) {
+			fullPath := strings.TrimSpace(prefix + " " + cmd.Name())
+			if cmd != root {
+				if !strings.Contains(commandsDoc, fullPath) {
+					t.Errorf("docs/reference/cli-commands.md missing command %q", fullPath)
+				}
+			}
+			cmd.NonInheritedFlags().VisitAll(func(f *pflag.Flag) {
+				if f.Hidden || f.Name == "help" || f.Name == "version" {
+					return
+				}
+				flagToken := "--" + f.Name
+				if !strings.Contains(commandsDoc, flagToken) {
+					t.Errorf("docs/reference/cli-commands.md missing flag %q for command %q", flagToken, fullPath)
+				}
+			})
+			cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+				if f.Hidden || f.Name == "help" || f.Name == "version" {
+					return
+				}
+				flagToken := "--" + f.Name
+				if !strings.Contains(commandsDoc, flagToken) {
+					t.Errorf("docs/reference/cli-commands.md missing persistent flag %q", flagToken)
+				}
+			})
+			for _, sub := range cmd.Commands() {
+				if sub.Hidden || sub.Name() == "help" {
+					continue
+				}
+				walk(sub, fullPath)
+			}
+		}
+		walk(root, "")
+	})
+
+	t.Run("docs/reference/json-schema.md documents envelope fields, error codes, categories, and exit codes", func(t *testing.T) {
+		schemaDoc := readRepoFile(t, filepath.Join("docs", "reference", "json-schema.md"))
+
+		for _, field := range []string{`"ok"`, `"data"`, `"error"`, `"meta"`, `"schema_version"`, `"duration_ms"`, `"request_id"`} {
+			if !strings.Contains(schemaDoc, field) {
+				t.Errorf("docs/reference/json-schema.md missing envelope field %s", field)
+			}
+		}
+
+		allCodes := []string{
+			model.ErrValidationFailed,
+			model.ErrInvalidFilter,
+			model.ErrAuthRequired,
+			model.ErrAuthFailed,
+			model.ErrPermissionDenied,
+			model.ErrAPIError,
+			model.ErrRemoteProtocolError,
+			model.ErrResourceNotFound,
+			model.ErrConflict,
+			model.ErrNetworkError,
+			model.ErrRateLimited,
+			model.ErrPartialSuccess,
+			model.ErrConfirmationRequired,
+			model.ErrReadOnlyViolation,
+			model.ErrFilesystemError,
+			model.ErrConfigError,
+			model.ErrInterrupted,
+		}
+		for _, code := range allCodes {
+			if !strings.Contains(schemaDoc, code) {
+				t.Errorf("docs/reference/json-schema.md missing error code %q", code)
+			}
+			cat := model.CategoryForCode(code)
+			if !strings.Contains(schemaDoc, cat) {
+				t.Errorf("docs/reference/json-schema.md missing category %q for code %q", cat, code)
+			}
+		}
+		for _, exitStr := range []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "130"} {
+			if !strings.Contains(schemaDoc, exitStr) {
+				t.Errorf("docs/reference/json-schema.md missing exit code %s", exitStr)
+			}
+		}
+	})
+
 }
