@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -860,6 +861,86 @@ func TestDownload_VerificationFailuresAndCleanup(t *testing.T) {
 		entries, _ := os.ReadDir(destDir)
 		if len(entries) != 0 {
 			t.Fatalf("expected empty destDir after canceled download, found %d files", len(entries))
+		}
+	})
+}
+
+func TestDownload_OutlivesClientTimeoutAndHonorsContext(t *testing.T) {
+	payload := bytes.Repeat([]byte("v"), 4*1024)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		for chunk := range slices.Chunk(payload, 1024) {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+			_, _ = w.Write(chunk)
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	defer srv.Close()
+
+	client, err := aphotos.NewClient(aphotos.Options{
+		Region:         aphotos.RegionUS,
+		DriveURL:       srv.URL + "/drive/v1",
+		HTTPClient:     &http.Client{Timeout: 150 * time.Millisecond},
+		DisableRetries: true,
+		Cookies: map[string]string{
+			"session-id": "111-2222222-3333333",
+			"ubid-main":  "130-0000000-0000000",
+			"at-main":    "Atza|token",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	t.Run("body slower than HTTPClient.Timeout completes", func(t *testing.T) {
+		destDir := t.TempDir()
+		res, err := client.Download(context.Background(), aphotos.DownloadRequest{
+			NodeID:       "NODE_SLOW",
+			OwnerID:      "OWN1",
+			DestDir:      destDir,
+			FileName:     "slow.mp4",
+			ExpectedSize: int64(len(payload)),
+		})
+		if err != nil {
+			t.Fatalf("Download returned error: %v", err)
+		}
+		if res.Status != aphotos.TransferConfirmed || res.Bytes != int64(len(payload)) {
+			t.Fatalf("Status=%q Bytes=%d, want %q %d", res.Status, res.Bytes, aphotos.TransferConfirmed, len(payload))
+		}
+		got, err := os.ReadFile(filepath.Join(destDir, "slow.mp4"))
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("file content length = %d, want %d", len(got), len(payload))
+		}
+	})
+
+	t.Run("context deadline still cancels and cleans up", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+		defer cancel()
+		destDir := t.TempDir()
+		_, err := client.Download(ctx, aphotos.DownloadRequest{
+			NodeID:   "NODE_SLOW",
+			OwnerID:  "OWN1",
+			DestDir:  destDir,
+			FileName: "slow.mp4",
+		})
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+		}
+		entries, _ := os.ReadDir(destDir)
+		if len(entries) != 0 {
+			t.Fatalf("expected empty destDir after deadline, found %d files", len(entries))
 		}
 	})
 }

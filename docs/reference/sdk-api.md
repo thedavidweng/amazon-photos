@@ -16,7 +16,7 @@ func (c *Client) RegionConfig() RegionConfig
 |---|---|---|---|
 | `Region` | `Region` | Inferred from cookies | Marketplace identifier (`RegionUS`, `RegionCA`, `RegionUK`, `RegionJP`, `RegionDE`, ...) |
 | `Cookies` | `map[string]string` | Required | Browser session cookies (`session-id`, `ubid-*`, `at-*`) |
-| `HTTPClient` | `*http.Client` | `30s` timeout client | Custom HTTP client |
+| `HTTPClient` | `*http.Client` | `30s` timeout client | Custom HTTP client; `Download` ignores its `Timeout` and is bounded only by `ctx` |
 | `Transport` | `http.RoundTripper` | `http.DefaultTransport` | Injected transport seam for tests or proxies |
 | `DriveURL` | `string` | Regional default | Override `/drive/v1` base URL |
 | `UploadURL` | `string` | Regional default | Override `/cdproxy/nodes` upload URL |
