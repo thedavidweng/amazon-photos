@@ -118,6 +118,7 @@ func (c *Client) Download(ctx context.Context, req DownloadRequest) (*TransferRe
 
 func (c *Client) downloadHTTPClient() *http.Client {
 	cloned := *c.httpClient
+	cloned.Timeout = 0
 	origCheck := c.httpClient.CheckRedirect
 	cloned.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 {
