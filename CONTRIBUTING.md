@@ -11,6 +11,8 @@ mise run check
 
 Requires Go 1.27.3 or later.
 
+`mise.toml` pins the compiler used by local tasks, CI, and releases. `go.mod`'s `go` directive is the minimum supported Go, not the compiler pin, so change it only when the compatibility floor actually moves.
+
 ## Development Workflow
 
 ```bash
