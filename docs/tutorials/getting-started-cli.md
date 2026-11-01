@@ -14,7 +14,7 @@ Install `aphotos` using Homebrew on macOS or Linux:
 
 ```sh
 brew tap thedavidweng/homebrew-tap
-brew install aphotos
+brew install --cask aphotos
 ```
 
 Or install directly with Go 1.27.3+:

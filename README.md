@@ -36,7 +36,7 @@ Three sibling projects share one Amazon Photos foundation:
 
 ```shell
 brew tap thedavidweng/homebrew-tap
-brew install aphotos
+brew install --cask aphotos
 ```
 
 **Go Install:**
