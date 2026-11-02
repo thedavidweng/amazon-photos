@@ -85,13 +85,14 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: release --snapshot --clean --skip=sign --parallelism 2
-      - name: Verify snapshot artifacts, SBOMs, Homebrew formula, and SHA-256
+      - name: Verify snapshot artifacts, SBOMs, Homebrew cask, and SHA-256
         run: |
           set -euo pipefail
           test -s dist/checksums.txt
           (cd dist && sha256sum -c checksums.txt)
-          test -s dist/homebrew/aphotos.rb
-          grep -q 'class Aphotos < Formula' dist/homebrew/aphotos.rb
+          test -s dist/homebrew/Casks/aphotos.rb
+          grep -q 'cask "aphotos" do' dist/homebrew/Casks/aphotos.rb
+          grep -q 'generate_completions_from_executable "aphotos", "completion"' dist/homebrew/Casks/aphotos.rb
           for os_arch in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
             archive=$(ls dist/aphotos_*_${os_arch}.tar.gz)
             test -s "$archive"

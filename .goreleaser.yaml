@@ -64,21 +64,21 @@ nfpms:
       - apk
     bindir: /usr/bin
 
-brews:
+homebrew_casks:
   - name: aphotos
-    skip_upload: '{{ eq (index .Env "SKIP_HOMEBREW_TAP") "true" }}'
+    skip_upload: true
     repository:
       owner: thedavidweng
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    binaries:
+      - aphotos
+    generate_completions_from_executable:
+      executable: aphotos
+      args:
+        - completion
     homepage: "https://github.com/thedavidweng/amazon-photos"
     description: "Unofficial Amazon Photos / Drive v1 CLI and Go SDK"
     license: "MIT"
-    install: |
-      bin.install "aphotos"
-      generate_completions_from_executable(bin/"aphotos", "completion")
-    test: |
-      system "#{bin}/aphotos", "version"
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
